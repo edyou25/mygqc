@@ -595,6 +595,13 @@ Item {
                         enabled:            true
                         visible:            true
                         dropPanelComponent: centerMapDropPanel
+                    },
+                    ToolStripAction {
+                        text:               qsTr("Optimize")
+                        iconSource:         "/qmlimages/Optimize.svg"
+                        enabled:            true
+                        visible:            true
+                        dropPanelComponent: centerMapDropPanel
                     }
                 ]
             }
