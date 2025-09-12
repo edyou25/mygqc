@@ -511,6 +511,7 @@ Item {
             readonly property int patternButtonIndex:   5
             readonly property int landButtonIndex:      6
             readonly property int centerButtonIndex:    7
+            readonly property int optimizeButtonIndex:  8
 
             property bool _isRallyLayer:    _editingLayer == _layerRallyPoints
             property bool _isMissionLayer:  _editingLayer == _layerMission
@@ -597,11 +598,17 @@ Item {
                         dropPanelComponent: centerMapDropPanel
                     },
                     ToolStripAction {
-                        text:               qsTr("Optimize")
-                        iconSource:         "/qmlimages/Optimize.svg"
-                        enabled:            true
-                        visible:            true
-                        dropPanelComponent: centerMapDropPanel
+                        id:             optimizeAction
+                        text:           qsTr("Optimize")
+                        iconSource:     "/qmlimages/Optimize.svg"
+                        enabled:        toolStrip._isMissionLayer && _missionController.visualItems.count > 2
+                        visible:        toolStrip._isMissionLayer
+                        onTriggered: {
+                            toolStrip.allAddClickBoolsOff()
+                            console.log("[Plan] Optimize mission (placeholder)")
+                            // TODO: 在这里调用实际的优化逻辑，例如:
+                            // _missionController.optimizeMission()
+                        }
                     }
                 ]
             }
