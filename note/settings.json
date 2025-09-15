@@ -2,6 +2,7 @@
     "SettingsVersion": 1.2,
     "SimMode": "Multirotor",
     "ClockType": "SteppableClock",
+    "OriginGeopoint": { "Latitude": 22.71041, "Longitude": 114.40716, "Altitude": 10 },
     "Vehicles": {
         "PX4": {
             "VehicleType": "PX4Multirotor",
@@ -13,15 +14,15 @@
             "ControlPortLocal": 14540,
             "ControlPortRemote": 14580,
             "LocalHostIp": "172.26.48.1",
-            "Sensors":{
-                "Barometer":{
+            "Sensors": {
+                "Barometer": {
                     "SensorType": 1,
                     "Enabled": true,
                     "PressureFactorSigma": 0.0001825
                 },
                 "Imu": {
                     "SensorType": 2,
-                    "Enabled" : true,
+                    "Enabled": true,
                     "AngularRandomWalk": 0.3,
                     "GyroBiasStabilityTau": 500,
                     "GyroBiasStability": 4.6,
@@ -29,9 +30,10 @@
                     "AccelBiasStabilityTau": 800,
                     "AccelBiasStability": 36
                 },
+                "Magnetometer": { "SensorType": 4, "Enabled": true },
                 "Gps": {
                     "SensorType": 3,
-                    "Enabled" : true,
+                    "Enabled": true,
                     "EphTimeConstant": 0.9,
                     "EpvTimeConstant": 0.9,
                     "EphInitial": 25,
@@ -46,7 +48,7 @@
                 },
                 "Distance": {
                     "SensorType": 5,
-                    "Enabled" : true,
+                    "Enabled": true,
                     "MinDistance": 0.2,
                     "MaxDistance": 40,
                     "X": 0, "Y": 0, "Z": -1,
@@ -74,8 +76,9 @@
                 "NAV_DLL_ACT": 0,
                 "COM_OBL_RC_ACT": 2,
                 "COM_OBS_AVOID": 0,
-		        "LPE_LAT": 22.71041,
-                "LPE_LON": 114.40716
+                "LPE_LAT": 22.71041,
+                "LPE_LON": 114.40716,
+                "EKF2_MAG_TYPE": 5
             }
         }
     }
