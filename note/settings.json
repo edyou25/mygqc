@@ -2,21 +2,19 @@
     "SettingsVersion": 1.2,
     "SimMode": "Multirotor",
     "ClockType": "SteppableClock",
-    "OriginGeopoint": { "Latitude": 22.71041, "Longitude": 114.40716, "Altitude": 10 },
     "Vehicles": {
         "PX4": {
             "VehicleType": "PX4Multirotor",
             "UseSerial": false,
             "LockStep": true,
-            // 改为使用 UDP（QGC 与 PX4 默认链路）
-            "UseTcp": false,
-            "UdpIp": "127.0.0.1",
-            "UdpPort": 14560,
-            "ControlPort": 14580,
-            // Windows 主机运行 AirSim 时一般使用 127.0.0.1；如需跨主机改为实际主机 IP
-            "LocalHostIp": "127.0.0.1",
-            "Sensors": {
-                "Barometer": {
+            "UseTcp": true,
+            "TcpPort": 4560,
+            "ControlIp": "remote",
+            "ControlPortLocal": 14540,
+            "ControlPortRemote": 14580,
+            "LocalHostIp": "172.26.48.1",
+            "Sensors":{
+                "Barometer":{
                     "SensorType": 1,
                     "Enabled": true,
                     "PressureFactorSigma": 0.0001825
@@ -72,11 +70,12 @@
                 }
             },
             "Parameters": {
-                // 移除 LPE_LAT/LPE_LON；若使用 EKF2 不再需要 LPE 参数
                 "NAV_RCL_ACT": 0,
                 "NAV_DLL_ACT": 0,
                 "COM_OBL_RC_ACT": 2,
-                "COM_OBS_AVOID": 0
+                "COM_OBS_AVOID": 0,
+		        "LPE_LAT": 22.71041,
+                "LPE_LON": 114.40716
             }
         }
     }
