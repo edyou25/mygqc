@@ -8,6 +8,9 @@ cmake --build build -j"$(nproc)"
 ```
 
 ### 交叉编译 AppImage
+```shell
+bash deploy/create_linux_appimage.sh deploy build
+```
 
 ## 2. code introduction
 

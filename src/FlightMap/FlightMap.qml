@@ -44,6 +44,8 @@ Map {
     property bool   planView:                       false   ///< true: map being using for Plan view, items should be draggable
 
     readonly property real  maxZoomLevel: 20
+    // Toggle for signal strength layer
+    property bool showSignalStrengthLayer: true
 
     property var    _activeVehicle:             QGroundControl.multiVehicleManager.activeVehicle
     property var    _activeVehicleCoordinate:   _activeVehicle ? _activeVehicle.coordinate : QtPositioning.coordinate()
@@ -199,5 +201,17 @@ Map {
                 }
             }
         }
+    }
+
+    // Signal strength heat/contour layer overlay
+    Loader {
+        active: showSignalStrengthLayer
+        source: "qrc:/qml/QGroundControl/FlightMap/SignalStrengthLayer.qml"
+        onLoaded: {
+            item.map = _map
+            item.towerModel = towerModel
+            item.z = QGroundControl.zOrderMapItems - 1 // below markers
+        }
+        anchors.fill: parent
     }
 } // Map

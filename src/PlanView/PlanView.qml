@@ -24,6 +24,7 @@ import QGroundControl.FactControls      1.0
 import QGroundControl.Palette           1.0
 import QGroundControl.Controllers       1.0
 import QGroundControl.ShapeFileHelper   1.0
+import "./TowerOptimize.js" as TowerOpt
 
 Item {
     id: _root
@@ -284,42 +285,8 @@ Item {
         _missionController.insertLandItem(mapCenter(), nextIndex, true /* makeCurrentItem */)
     }
 
-    // Optimize: move each simple waypoint (excluding home/takeoff/land) fractionally toward nearest tower
-    function optimizeMission() {
-        if (!_missionController || !_visualItems || _visualItems.count < 2) {
-            return
-        }
-        var towers = [
-            { lat: 22.710291217916406, lon: 114.40399596630152 },
-            { lat: 22.711232863891194, lon: 114.40828193416829 },
-            { lat: 22.70719579378946,  lon: 114.40981129360846 }
-        ]
-        var ratio = 0.2
-    for (var i=1; i<_visualItems.count; i++) { // skip index 0 (MissionSettings/Home)
-            var item = _visualItems.get(i)
-            if (!item.specifiesCoordinate || item.isStandaloneCoordinate || !item.isSimpleItem || item.isTakeoffItem || item.isLandCommand) {
-                continue
-            }
-            var c = item.coordinate
-            if (!c.isValid) continue
-            var best=null; var bestd=1e12
-            for (var t=0; t<towers.length; t++) {
-                var dLat = c.latitude - towers[t].lat
-                var dLon = c.longitude - towers[t].lon
-                var d2 = dLat*dLat + dLon*dLon
-                if (d2 < bestd) { bestd = d2; best = towers[t] }
-            }
-            if (best) {
-                var newLat = c.latitude + (best.lat - c.latitude) * ratio
-                var newLon = c.longitude + (best.lon - c.longitude) * ratio
-                var newCoord = QtPositioning.coordinate(newLat, newLon, c.altitude)
-                item.coordinate = newCoord
-                if (item.dirty !== undefined) item.dirty = true
-            }
-        }
-        _planMasterController.dirty = true
-        console.log('[Plan] optimizeMission applied to waypoints')
-    }
+    // Load towers once when PlanView root completes
+    Component.onCompleted: TowerOpt.loadTowers()
 
 
     function selectNextNotReady() {
@@ -640,10 +607,7 @@ Item {
                         iconSource:     "/qmlimages/Optimize.svg"
                         enabled:        toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                         visible:        toolStrip._isMissionLayer
-                        onTriggered: {
-                            toolStrip.allAddClickBoolsOff()
-                            optimizeMission()
-                        }
+                        dropPanelComponent: optimizeDropPanel
                     }
                 ]
             }
@@ -888,6 +852,32 @@ Item {
                 }
             }
         } // Column
+    }
+
+    Component {
+        id: optimizeDropPanel
+        ColumnLayout {
+            spacing: _margin
+            QGCLabel { text: qsTr("Optimize") }
+            QGCButton {
+                text: qsTr("Linear")
+                Layout.fillWidth: true
+                enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
+                onClicked: {
+                    TowerOpt.optimizeMission(_missionController, _planMasterController, 0.2)
+                    dropPanel.hide()
+                }
+            }
+            QGCButton {
+                text: qsTr("Astar")
+                Layout.fillWidth: true
+                enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
+                onClicked: {
+                    TowerOpt.optimizeMissionRepel(_missionController, _planMasterController, 0.2)
+                    dropPanel.hide()
+                }
+            }
+        }
     }
 
     function downloadClicked(title) {
