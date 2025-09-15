@@ -81,3 +81,75 @@ cmake --build build -j"$(nproc)"
 3) MissionManager/PlanView/FlightMap/FlightDisplay（任务与地图 UI）
 4) FactSystem/Settings（参数与配置绑定）
 5) VideoManager/VideoReceiver（视频链路）
+
+
+# PX4 + AirSim + UE4 + QGroundControl 与 实机架构示意
+
+## 1. 仿真链路 (UE4 + AirSim + PX4 SITL + QGC)
+
+```mermaid
+flowchart LR
+    subgraph UE4_AirSim [UE4 场景 + AirSim]
+        UE4[Unreal Engine<br/>渲染/场景] --> AirSimCore[AirSim Core<br/>物理 & 传感器模拟]
+        AirSimCore -->|生成 HIL 传感器数据| HILMsgs[MAVLink HIL_* 消息]
+    end
+
+    subgraph PX4_SITL [PX4 SITL none target]
+        HILMsgs --> MavlinkRx[MAVLink Receiver]
+        MavlinkRx --> uORB[uORB Topics]
+        uORB --> EKF2[EKF2 状态估计]
+        EKF2 --> FlightStack[Flight Stack<br/>Commander / Navigator / 控制器]
+        FlightStack --> ActSim[虚拟执行器输出]
+    end
+
+    PX4_SITL <-->|Telemetry: 心跳/姿态/位置/参数<br/>Control: 任务/参数/指令上传| QGC[QGroundControl]
+
+```
+
+## 2. 实机链路 (真实 PX4 硬件 + QGC)
+
+```mermaid
+flowchart LR
+    subgraph RealVehicle [真实飞行器 PX4]
+        Sensors[真实传感器<br/>IMU / GPS / Baro / Mag] --> Drivers[驱动层]
+        Drivers --> uORB[uORB Topics]
+        uORB --> EKF2[EKF2 状态估计]
+        EKF2 --> FlightStack[Flight Stack]
+        FlightStack --> Actuators[电机 / 舵面输出]
+    end
+
+    Telemetry[无线遥测 / UDP / 串口] <--> RealVehicle
+    QGC[QGroundControl] <--> Telemetry
+```
+
+## 3. 仿真时序 (AirSim -> PX4 SITL -> QGC)
+
+```mermaid
+sequenceDiagram
+    participant AirSim as AirSim 传感器仿真
+    participant PX4 as PX4 SITL
+    participant QGC as QGroundControl
+    AirSim->>PX4: HIL_SENSOR / HIL_GPS / HIL_STATE_QUATERNION
+    PX4->>PX4: MAVLink Receiver -> uORB
+    PX4->>PX4: EKF2 融合更新状态
+    PX4-->>QGC: HEARTBEAT / GLOBAL_POSITION_INT / ATTITUDE / SYS_STATUS
+    QGC-->>PX4: MISSION_ITEM_INT / PARAM_SET / COMMAND_LONG
+```
+
+## 4. 实机时序 (Real Sensors -> PX4 -> QGC)
+
+```mermaid
+sequenceDiagram
+    participant Sensors as 真实传感器
+    participant PX4 as PX4 硬件
+    participant QGC as QGroundControl
+    Sensors->>PX4: 原始数据 (IMU/GPS/Baro/Mag)
+    PX4->>PX4: 驱动 -> uORB -> EKF2 -> 控制算法
+    PX4-->>QGC: Telemetry MAVLink
+    QGC-->>PX4: 任务 / 模式 / 参数 / 指令
+```
+
+## 5. 关键差异
+- 仿真传感器由 AirSim 产生 HIL_*；实机为真实硬件
+- Home 判定：仿真=OriginGeopoint；实机=首次有效 GPS Fix
+- 输出：仿真虚拟执行；实机驱动真实电机
