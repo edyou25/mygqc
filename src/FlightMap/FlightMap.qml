@@ -142,4 +142,62 @@ Map {
             }
         }
     }
+
+    // Tower markers loaded from embedded JSON resource /data/towers.json
+    ListModel { id: towerModel }
+    QtObject {
+        Component.onCompleted: {
+            var xhr = new XMLHttpRequest()
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    try {
+                        var arr = JSON.parse(xhr.responseText)
+                        for (var i=0; i<arr.length; i++) {
+                            towerModel.append({ name: arr[i].name, latitude: arr[i].latitude, longitude: arr[i].longitude })
+                        }
+                    } catch(e) {
+                        console.log('Failed to parse towers.json', e)
+                    }
+                }
+            }
+            xhr.open('GET', 'qrc:/data/towers.json')
+            xhr.send()
+        }
+    }
+
+    MapItemView {
+        model: towerModel
+        delegate: MapQuickItem {
+            coordinate: QtPositioning.coordinate(latitude, longitude)
+            anchorPoint.x: icon.width / 2
+            anchorPoint.y: icon.height
+            z: QGroundControl.zOrderMapItems
+            sourceItem: Column {
+                spacing: 2
+                Image {
+                    id: icon
+                    source: '/res/QGCLogoArrow'
+                    width: 24; height: 24
+                    fillMode: Image.PreserveAspectFit
+                }
+                Rectangle {
+                    radius: 3
+                    color: Qt.rgba(0,0,0,0.6)
+                    border.width: 0
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    property int hPad: 4
+                    property int vPad: 2
+                    implicitWidth: label.implicitWidth + hPad * 2
+                    implicitHeight: label.implicitHeight + vPad * 2
+                    Text {
+                        id: label
+                        text: name
+                        color: 'white'
+                        font.pixelSize: 12
+                        anchors.centerIn: parent
+                    }
+                }
+            }
+        }
+    }
 } // Map

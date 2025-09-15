@@ -355,6 +355,9 @@
         <file alias="VTOLLandingPattern.FactMetaData.json">src/MissionManager/VTOLLandingPattern.FactMetaData.json</file>
         <file alias="GimbalController.SettingsGroup.json">src/Settings/GimbalController.SettingsGroup.json</file>
     </qresource>
+        <qresource prefix="/data">
+            <file alias="towers.json">resources/towers.json</file>
+        </qresource>
     <qresource prefix="/MockLink">
         <file alias="APMArduSubMockLink.params">src/comm/APMArduSubMockLink.params</file>
         <file alias="PX4MockLink.params">src/comm/PX4MockLink.params</file>
