@@ -13,8 +13,13 @@ Item {
     // Model providing tower entries { latitude, longitude, name }
     // Removed invalid alias (previously 'property alias model: towerModel') which referenced no id.
     property var towerModel: null
-    property real attenExp: 2.0
-    property real radiusMeters: 8000        // influence radius per tower
+    // Attenuation exponent (lower => slower decay). Previously 2.0; reduced to 1.2 for slower falloff.
+    property real attenExp: 1.2
+    // Base distance scale (meters). Larger => even slower decay. Used to normalize distance.
+    property real baseDistance: 100
+    // Optional multiplier to globally raise/lower strength.
+    property real strengthMultiplier: 1.0
+    property real radiusMeters: 12000        // expanded influence radius per tower (was 8000)
     property int gridSize: 64               // number of samples per side
     property real maxComposite: 0           // updated after compute
     property bool contours: true
@@ -53,7 +58,9 @@ Item {
                         var tw = towerModel.get(ti)
                         var d = haversineMeters(coord.latitude, coord.longitude, tw.latitude, tw.longitude)
                         if (d < radiusMeters) {
-                            var eff = 1 / Math.pow(d + 20, attenExp) // +20m to avoid singularity
+                            // Normalize distance then apply slower attenuation
+                            var normD = d / baseDistance
+                            var eff = strengthMultiplier / Math.pow(normD + 1.0, attenExp)
                             composite += eff
                         }
                     }

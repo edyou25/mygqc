@@ -608,6 +608,15 @@ Item {
                         enabled:        toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                         visible:        toolStrip._isMissionLayer
                         dropPanelComponent: optimizeDropPanel
+                    },
+                    ToolStripAction {
+                        id: heatmapToggle
+                        text: qsTr("Signal")
+                        iconSource: "/qmlimages/MapDrawShape.svg"
+                        checkable: true
+                        checked: editorMap.showSignalStrengthLayer
+                        visible: toolStrip._isMissionLayer
+                        onTriggered: editorMap.showSignalStrengthLayer = !editorMap.showSignalStrengthLayer
                     }
                 ]
             }

@@ -44,8 +44,9 @@ Map {
     property bool   planView:                       false   ///< true: map being using for Plan view, items should be draggable
 
     readonly property real  maxZoomLevel: 20
-    // Toggle for signal strength layer
-    property bool showSignalStrengthLayer: true
+    // Signal strength layer visibility (contours always on when layer visible)
+    property bool showSignalStrengthLayer: false
+    property var  signalStrengthLayer: null
 
     property var    _activeVehicle:             QGroundControl.multiVehicleManager.activeVehicle
     property var    _activeVehicleCoordinate:   _activeVehicle ? _activeVehicle.coordinate : QtPositioning.coordinate()
@@ -210,8 +211,14 @@ Map {
         onLoaded: {
             item.map = _map
             item.towerModel = towerModel
+            item.contours = true
             item.z = QGroundControl.zOrderMapItems - 1 // below markers
+            signalStrengthLayer = item
         }
         anchors.fill: parent
+        Connections {
+            target: _map
+            function onCenterChanged() { if (signalStrengthLayer) signalStrengthLayer.map = _map }
+        }
     }
 } // Map
