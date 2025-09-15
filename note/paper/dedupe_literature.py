@@ -123,6 +123,8 @@ def main():
     ap.add_argument('--min-author-overlap', type=float, default=0.2, help='Minimum fractional author overlap to accept cluster merge when ambiguous')
     ap.add_argument('--max-year-span', type=int, default=5, help='If year difference exceeds this inside a title cluster, split')
     ap.add_argument('--use-rapidfuzz', action='store_true', help='Force usage of rapidfuzz (if installed)')
+    ap.add_argument('--keep-first', type=int, default=134, help='(Deprecated override) Previously used to keep first N columns; now output fixed columns 1,3,4')
+    ap.add_argument('--patent', action='store_true', help='Filter: only keep rows whose Publisher starts with "US Patent"')
     args = ap.parse_args()
 
     global HAVE_RAPIDFUZZ
@@ -134,6 +136,11 @@ def main():
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames or []
         for idx, row in enumerate(reader):
+            if args.patent:
+                pub = (row.get('Source') or '').strip()
+                # print(pub)
+                if not pub.startswith('US Patent'):
+                    continue
             row['_row_index'] = idx
             row['_doi_norm'] = norm_doi(row.get('DOI',''))
             row['_title_norm'] = norm_title(row.get('Title',''))
@@ -189,16 +196,21 @@ def main():
         if rep:
             reps.append(rep)
 
-    # 4. Write deduped
-    out_fields = [c for c in fieldnames if c]
-    if '_cluster_id' not in out_fields:
-        out_fields.append('_cluster_id')
-    if '_row_index' not in out_fields:
-        out_fields.append('_row_index')
+    # 4. Write deduped: only keep columns 1,3,4 (1-based indices) if available
+    selected_indices = [0,2,3]  # zero-based for columns 1,3,4
+    base_fields = []
+    for i in selected_indices:
+        if i < len(fieldnames):
+            base_fields.append(fieldnames[i])
+    out_fields = list(base_fields)
+    include_cluster_meta = bool(args.clusters)
+    if include_cluster_meta:
+        out_fields += ['_cluster_id','_row_index']
 
     cluster_ids = {}
     for cid, cl in enumerate(clusters):
         for r in cl:
+
             cluster_ids[r['_row_index']] = cid
 
     with open(args.out, 'w', newline='', encoding='utf-8') as f:
@@ -206,7 +218,9 @@ def main():
         w.writeheader()
         for rep in reps:
             rep_out = {k: rep.get(k,'') for k in out_fields}
-            rep_out['_cluster_id'] = cluster_ids.get(rep['_row_index'])
+            if include_cluster_meta:
+                rep_out['_cluster_id'] = cluster_ids.get(rep['_row_index'])
+                rep_out['_row_index'] = rep.get('_row_index')
             w.writerow(rep_out)
 
     if args.clusters:
