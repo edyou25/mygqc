@@ -49,23 +49,24 @@ cd ${APPDIR}
 find ../ -name *.deb -exec dpkg -x {} . \;
 
 # copy libdirectfb-1.2.so.9
-cd ${TMPDIR}
-wget -c --quiet http://ftp.us.debian.org/debian/pool/main/d/directfb/libdirectfb-1.2-9_1.2.10.0-5.1_amd64.deb
-mkdir libdirectfb
-dpkg -x libdirectfb-1.2-9_1.2.10.0-5.1_amd64.deb libdirectfb
-cp -L libdirectfb/usr/lib/x86_64-linux-gnu/libdirectfb-1.2.so.9 ${APPDIR}/usr/lib/x86_64-linux-gnu/
-cp -L libdirectfb/usr/lib/x86_64-linux-gnu/libfusion-1.2.so.9 ${APPDIR}/usr/lib/x86_64-linux-gnu/
-cp -L libdirectfb/usr/lib/x86_64-linux-gnu/libdirect-1.2.so.9 ${APPDIR}/usr/lib/x86_64-linux-gnu/
+# cd ${TMPDIR}
+# wget -c --quiet http://ftp.us.debian.org/debian/pool/main/d/directfb/libdirectfb-1.2-9_1.2.10.0-5.1_amd64.deb
+# mkdir libdirectfb
+# dpkg -x libdirectfb-1.2-9_1.2.10.0-5.1_amd64.deb libdirectfb
+# cp -L libdirectfb/usr/lib/x86_64-linux-gnu/libdirectfb-1.2.so.9 ${APPDIR}/usr/lib/x86_64-linux-gnu/
+# cp -L libdirectfb/usr/lib/x86_64-linux-gnu/libfusion-1.2.so.9 ${APPDIR}/usr/lib/x86_64-linux-gnu/
+# cp -L libdirectfb/usr/lib/x86_64-linux-gnu/libdirect-1.2.so.9 ${APPDIR}/usr/lib/x86_64-linux-gnu/
 
 # copy QGroundControl release into appimage
 rsync -av --exclude=*.cpp --exclude=*.h --exclude=*.o --exclude="CMake*" --exclude="*.cmake" ${QGC_RELEASE_DIR}/* ${APPDIR}/
 rm -rf ${APPDIR}/package
 cp ${QGC_CUSTOM_LINUX_START_SH} ${APPDIR}/AppRun
 
-# copy icon
+# copy icon (original) and also ensure a canonical name matching desktop entry
 cp ${QGC_CUSTOM_APP_ICON} ${APPDIR}/
+cp ${QGC_CUSTOM_APP_ICON} ${APPDIR}/${QGC_CUSTOM_APP_ICON_NAME}.png 2>/dev/null || true
 
-cat > ./QGroundControl.desktop <<\EOF
+cat > ./QGroundControl.desktop <<EOF
 [Desktop Entry]
 Type=Application
 Name=${QGC_CUSTOM_APP_NAME}

@@ -33,6 +33,7 @@ deploy/mac
 deploy/linux
 controller_log*
 user_config.pri
+deploy/QGroundControl.AppImage
 *.app
 *.ncb
 *.vcproj

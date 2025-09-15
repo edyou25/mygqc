@@ -2,9 +2,12 @@
 
 ## 1. compile
 
+### 编译QGC
 ```shell
 cmake --build build -j"$(nproc)"
 ```
+
+### 交叉编译 AppImage
 
 ## 2. code introduction
 
