@@ -873,7 +873,7 @@ Item {
                 Layout.fillWidth: true
                 enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                 onClicked: {
-                    TowerOpt.optimizeMission(_missionController, _planMasterController, 0.2)
+                    TowerOpt.optimizeMissionLinear(_missionController, _planMasterController, 0.2)
                     dropPanel.hide()
                 }
             }
@@ -882,7 +882,16 @@ Item {
                 Layout.fillWidth: true
                 enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                 onClicked: {
-                    TowerOpt.optimizeMissionRepel(_missionController, _planMasterController, 0.2)
+                    TowerOpt.optimizeMissionAStar(_missionController, _planMasterController, 0.2)
+                    dropPanel.hide()
+                }
+            }
+            QGCButton {
+                text: qsTr("RRT")
+                Layout.fillWidth: true
+                enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
+                onClicked: {
+                    TowerOpt.optimizeMissionRRT(_missionController, _planMasterController, 0.2)
                     dropPanel.hide()
                 }
             }

@@ -14,6 +14,108 @@ bash deploy/create_linux_appimage.sh deploy build
 
 ## 2. code introduction
 
+```mermaid
+graph LR
+  %% ========== Simple FE / BE / Language Annotations ========== 
+  %% Legend: [QML] [JS] [C++] indicate primary implementation language.
+  %% FE (前端): QML/JS  UI/交互
+  %% Bridge (桥接): Controllers/Models 暴露给 QML 的 C++
+  %% BE (后端): Core/Protocol/Media/Geo/Tools C++
+
+  subgraph FE[Frontend QML+JS]
+    PlanView[PlanView.qml QML]
+    FlightDisplay[FlightDisplay.qml QML]
+    AnalyzeView[AnalyzeView.qml QML]
+    VehicleSetup[VehicleSetup.qml QML]
+    QmlControls[QmlControls QML]
+    TowerJS[TowerOptimize.js JS]
+  end
+
+  subgraph Bridge[Bridge Controllers+Models C++]
+    MissionCtrl[MissionController C++]
+    PlanMasterCtrl[PlanMasterController C++]
+    FlightCtrl[FlightDisplayController C++]
+    AnalyzeCtrl[AnalyzeController C++]
+    MissionModel[MissionItemModel C++]
+    GeoFenceModel[GeoFenceModel C++]
+    RallyModel[RallyPointModel C++]
+    FactSystem[FactSystem C++]
+    AppSettings[AppSettings C++]
+  end
+
+  subgraph BE[Backend Core C++]
+    LinkManager[LinkManager]
+    MAVProto[MAVLinkProtocol]
+    VehicleCore[Vehicle]
+    FirmwarePlugin[FirmwarePlugin]
+    PX4Plugin[PX4Plugin]
+    APMPlugin[APMPlugin]
+    TerrainEng[TerrainEngine]
+    GeoUtils[GeoUtils]
+    MapCache[MapCache]
+    VideoManager[VideoManager]
+    VideoReceiver[VideoReceiver]
+    CameraControl[CameraControl]
+    AudioOut[Audio]
+    FileLogger[FilteredFileLogger]
+    MsgHandler[QtMessageHandler]
+    JsonHelper[JsonHelper]
+    Compression[Compression]
+    FileDownload[FileDownload]
+    RunGuard[RunGuard]
+  end
+
+  AppRoot[QGCApplication C++] --> Toolbox[QGCToolbox C++]
+  AppRoot --> FileLogger
+  Toolbox --> LinkManager --> MAVProto --> VehicleCore
+  VehicleCore --> MissionCtrl --> MissionModel
+  PlanView --> MissionCtrl
+  PlanView --> FactSystem
+  TowerJS --> MissionCtrl
+  FirmwarePlugin --> VehicleCore
+  PX4Plugin --> FirmwarePlugin
+  APMPlugin --> FirmwarePlugin
+  TerrainEng --> GeoUtils
+  GeoUtils --> MissionCtrl
+  VideoReceiver --> VideoManager
+  CameraControl --> VideoManager
+  VideoManager --> FlightCtrl
+  FlightDisplay --> FlightCtrl
+  FactSystem --> VehicleSetup
+  %% Logging path (simplified arrows for parser compatibility)
+  PlanView -.-> MsgHandler --> FileLogger
+  TowerJS -.-> MsgHandler
+
+  %% External
+  Autopilot[(Autopilot FW)] -->|MAVLink| LinkManager
+  Telemetry[(Telemetry Link)] --> LinkManager
+
+  %% Simple styles
+  classDef fe fill:#e3f4ff,stroke:#3a7fa6,stroke-width:1;
+  classDef bridge fill:#fff6dd,stroke:#c49b24,stroke-width:1;
+  classDef be fill:#ead9ff,stroke:#7447b0,stroke-width:1;
+  classDef app fill:#d6ecff,stroke:#2c6b94,stroke-width:1;
+  classDef ext fill:#dddddd,stroke:#555,stroke-width:1,stroke-dasharray:3 2;
+
+  class PlanView,FlightDisplay,AnalyzeView,VehicleSetup,QmlControls,TowerJS fe;
+  class MissionCtrl,PlanMasterCtrl,FlightCtrl,AnalyzeCtrl,MissionModel,GeoFenceModel,RallyModel,FactSystem,AppSettings bridge;
+  class LinkManager,MAVProto,VehicleCore,FirmwarePlugin,PX4Plugin,APMPlugin,TerrainEng,GeoUtils,MapCache,VideoManager,VideoReceiver,CameraControl,AudioOut,FileLogger,MsgHandler,JsonHelper,Compression,FileDownload,RunGuard be;
+  class AppRoot,Toolbox app;
+  class Autopilot,Telemetry ext;
+
+  %% Legend Node
+  subgraph LEGEND[Legend]
+    L1[FE: QML/JS]
+    L2[Bridge: C++ QObject Models]
+    L3[BE: Core C++]
+  end
+
+  LEGEND --- FE
+  LEGEND --- Bridge
+  LEGEND --- BE
+```
+
+
 入口与核心框架
 - main.cc: 应用入口，初始化 QGCApplication 并启动 QML/UI。
 - QGCApplication.{cc,h}: 应用生命周期与全局初始化，创建 QGCToolbox，注册 C++/QML 类型，装载资源等。
