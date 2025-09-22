@@ -497,23 +497,174 @@ Item {
                 opacity:                _editingLayer != _layerRallyPoints ? editorMap._nonInteractiveOpacity : 1
             }
 
-            // A* Debug Layer
-            Loader {
+            // A* Debug Layer - Direct map components
+            Item {
                 id: astarDebugLayer
                 anchors.fill: parent
-                active: false
-                source: "qrc:/qml/AStarDebugLayer.qml"
                 
-                property var map: editorMap
                 property bool debugVisible: false
-                
-                onLoaded: {
-                    item.map = editorMap
-                    item.visible = Qt.binding(function() { return astarDebugLayer.debugVisible })
-                }
+                property var debugTrees: []
                 
                 function refreshDebugData() {
-                    if (item) item.refreshDebugData()
+                    debugTrees = TowerOpt.getDebugSearchTrees()
+                    console.log('[AStarDebug] Loaded', debugTrees.length, 'search trees')
+                }
+                
+                // Debug control panel
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.margins: 10
+                    width: 200
+                    height: 120
+                    color: "#80000000"
+                    radius: 5
+                    visible: astarDebugLayer.debugVisible
+                    
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        
+                        QGCLabel {
+                            text: "A* Debug Layer"
+                            color: "white"
+                            font.bold: true
+                        }
+                        
+                        QGCCheckBox {
+                            id: showNodesCheck
+                            text: "Show Nodes"
+                            checked: true
+                            textColor: "white"
+                        }
+                        
+                        QGCCheckBox {
+                            id: showEdgesCheck
+                            text: "Show Edges"  
+                            checked: true
+                            textColor: "white"
+                        }
+                        
+                        QGCCheckBox {
+                            id: showPathCheck
+                            text: "Show Final Path"
+                            checked: true
+                            textColor: "white"
+                        }
+                        
+                        QGCButton {
+                            text: "Refresh"
+                            Layout.fillWidth: true
+                            onClicked: astarDebugLayer.refreshDebugData()
+                        }
+                    }
+                }
+                
+                // Debug visualization - direct map children
+                Repeater {
+                    model: astarDebugLayer.debugVisible ? astarDebugLayer.debugTrees : []
+                    
+                    delegate: Item {
+                        property var treeData: modelData
+                        
+                        // Search edges
+                        Repeater {
+                            model: showEdgesCheck.checked ? treeData.edges : []
+                            delegate: MapPolyline {
+                                line.width: 1
+                                line.color: "#20888888"
+                                path: [
+                                    QtPositioning.coordinate(modelData.from.lat, modelData.from.lon),
+                                    QtPositioning.coordinate(modelData.to.lat, modelData.to.lon)
+                                ]
+                            }
+                        }
+                        
+                        // Search nodes  
+                        Repeater {
+                            model: showNodesCheck.checked ? treeData.nodes : []
+                            delegate: MapQuickItem {
+                                coordinate: QtPositioning.coordinate(modelData.coord.lat, modelData.coord.lon)
+                                anchorPoint.x: 4
+                                anchorPoint.y: 4
+                                
+                                sourceItem: Rectangle {
+                                    width: 8
+                                    height: 8
+                                    radius: 4
+                                    color: modelData.isBest ? "#FFFF0000" : 
+                                           modelData.isClosed ? "#40FF4444" : "#4000FF00"
+                                    border.width: 1
+                                    border.color: "#80FFFFFF"
+                                }
+                            }
+                        }
+                        
+                        // Final path
+                        MapPolyline {
+                            visible: showPathCheck.checked && treeData.finalPath.length > 0
+                            line.width: 3
+                            line.color: "#FF00FF00"
+                            path: {
+                                var pathCoords = []
+                                for (var i = 0; i < treeData.finalPath.length; i++) {
+                                    pathCoords.push(QtPositioning.coordinate(
+                                        treeData.finalPath[i].coord.lat,
+                                        treeData.finalPath[i].coord.lon
+                                    ))
+                                }
+                                return pathCoords
+                            }
+                        }
+                        
+                        // Start marker
+                        MapQuickItem {
+                            coordinate: QtPositioning.coordinate(treeData.originalCoord.lat, treeData.originalCoord.lon)
+                            anchorPoint.x: 6
+                            anchorPoint.y: 6
+                            
+                            sourceItem: Rectangle {
+                                width: 12
+                                height: 12
+                                radius: 6
+                                color: "#FF0000FF"
+                                border.width: 2
+                                border.color: "white"
+                                
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "S"
+                                    color: "white"
+                                    font.pixelSize: 8
+                                    font.bold: true
+                                }
+                            }
+                        }
+                        
+                        // Target marker
+                        MapQuickItem {
+                            coordinate: QtPositioning.coordinate(treeData.targetCoord.lat, treeData.targetCoord.lon)
+                            anchorPoint.x: 6
+                            anchorPoint.y: 6
+                            
+                            sourceItem: Rectangle {
+                                width: 12
+                                height: 12
+                                radius: 6
+                                color: "#FFFF8000"
+                                border.width: 2
+                                border.color: "white"
+                                
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "T"
+                                    color: "white"
+                                    font.pixelSize: 8
+                                    font.bold: true
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

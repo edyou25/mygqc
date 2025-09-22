@@ -19,12 +19,14 @@
     "weightDeviation": 0.25,
     "weightSignal": 18000,
     "maxIterations": 8000,
-    "minSeparationMeters": 5.0,
-    "safeSeparationMeters": 15.0,
+    "separation": {
+      "minMeters": 5.0,
+      "safeMeters": 15.0
+    },
     "signalModel": {
-      "attenExp": 1.2,
-      "baseDistance": 300.0,
-      "radiusMeters": 12000.0,
+      "attenuationExponent": 1.2,
+      "baseDistanceMeters": 300.0,
+      "signalRadiusMeters": 12000.0,
       "strengthMultiplier": 1.0
     }
   },

@@ -47,8 +47,28 @@ function getConfig(section, key, defaultValue) {
         }
     }
     
-    if (config && config[section] && config[section][key] !== undefined) {
-        return config[section][key]
+    if (config && config[section]) {
+        // 支持嵌套键名（如 'signalModel.attenuationExponent'）
+        if (key.indexOf('.') !== -1) {
+            var keys = key.split('.')
+            var current = config[section]
+            for (var i = 0; i < keys.length; i++) {
+                if (current && current[keys[i]] !== undefined) {
+                    current = current[keys[i]]
+                } else {
+                    current = undefined
+                    break
+                }
+            }
+            if (current !== undefined) {
+                return current
+            }
+        } else {
+            // 简单键名
+            if (config[section][key] !== undefined) {
+                return config[section][key]
+            }
+        }
     }
     
     console.warn('[TowerOptimize] Config key not found:', section + '.' + key, 'using default:', defaultValue)
@@ -124,7 +144,10 @@ function optimizeMissionLinear(missionController, planMasterController, ratio) {
 
 function getTowers() { return towers }
 
-function getDebugSearchTrees() { return debugSearchTrees }
+function getDebugSearchTrees() { 
+    console.info('[TowerOptimize] getDebugSearchTrees called, returning', debugSearchTrees.length, 'trees')
+    return debugSearchTrees 
+}
 
 function clearDebugSearchTrees() { debugSearchTrees = [] }
 
@@ -156,10 +179,10 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     var maxIterations = options.maxIterations || getConfig('astar', 'maxIterations', 8000)
 
     // Signal model parameters (align with heatmap layer for consistency)
-    var attenExp = getConfig('astar', 'attenuation_exponent', 1.2)
-    var baseDistance = getConfig('astar', 'base_distance_meters', 300.0)
-    var radiusMeters = getConfig('astar', 'signal_radius_meters', 12000.0)
-    var strengthMultiplier = getConfig('astar', 'strength_multiplier', 1.0)
+    var attenExp = getConfig('astar', 'signalModel.attenuationExponent', 1.2)
+    var baseDistance = getConfig('astar', 'signalModel.baseDistanceMeters', 300.0)
+    var radiusMeters = getConfig('astar', 'signalModel.signalRadiusMeters', 12000.0)
+    var strengthMultiplier = getConfig('astar', 'signalModel.strengthMultiplier', 1.0)
 
     function distanceMeters(lat1, lon1, lat2, lon2) {
         var R = 6371000
@@ -184,8 +207,8 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     }
 
     // Minimum separation (meters) to prevent collapsing two adjacent waypoints into effectively one
-    var minSeparation = options.minSeparationMeters || getConfig('astar', 'min_separation_meters', 5.0)
-    var safeSeparation = options.safeSeparationMeters || getConfig('astar', 'safe_separation_meters', 15.0)
+    var minSeparation = options.minSeparationMeters || getConfig('astar', 'separation.minMeters', 5.0)
+    var safeSeparation = options.safeSeparationMeters || getConfig('astar', 'separation.safeMeters', 15.0)
 
     // Snapshot original coordinates to allow revert if something unexpected changes count
     var originalCoords = []

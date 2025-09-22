@@ -5,12 +5,12 @@ import QtLocation 5.12
 import QtPositioning 5.12
 import QGroundControl 1.0
 import QGroundControl.Controls 1.0
-import "qrc:/qml/TowerOptimize.js" as TowerOptimize
 
 Item {
     id: root
     
     property var map
+    property var debugDataProvider: null
     property color nodeColor: "#40FF4444"           // 搜索节点颜色（半透明红）
     property color edgeColor: "#20888888"           // 搜索边颜色（半透明灰）
     property color pathColor: "#FF00FF00"           // 最终路径颜色（绿）
@@ -23,7 +23,7 @@ Item {
     Rectangle {
         id: controlPanel
         anchors.bottom: parent.bottom
-        anchors.right: parent.right
+        anchors.left: parent.left
         anchors.margins: 10
         width: 200
         height: 120
@@ -202,8 +202,13 @@ Item {
     property var debugTrees: []
     
     function refreshDebugData() {
-        debugTrees = TowerOptimize.getDebugSearchTrees()
-        console.log('[AStarDebug] Loaded', debugTrees.length, 'search trees')
+        if (debugDataProvider) {
+            debugTrees = debugDataProvider.getDebugSearchTrees()
+            console.log('[AStarDebug] Loaded', debugTrees.length, 'search trees')
+        } else {
+            console.warn('[AStarDebug] No debug data provider available')
+            debugTrees = []
+        }
     }
     
     function show() {
