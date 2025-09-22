@@ -1,0 +1,49 @@
+{
+  "version": "1.0",
+  "description": "TowerOptimize 算法配置文件",
+  
+  "general": {
+    "enableLogging": true,
+    "defaultAlgorithm": "astar"
+  },
+  
+  "linear": {
+    "description": "线性优化算法参数",
+    "ratio": 0.2
+  },
+  
+  "astar": {
+    "description": "A* 路径优化算法参数",
+    "cellSizeMeters": 30,
+    "radiusCells": 10,
+    "weightDeviation": 0.25,
+    "weightSignal": 18000,
+    "maxIterations": 8000,
+    "minSeparationMeters": 5.0,
+    "safeSeparationMeters": 15.0,
+    "signalModel": {
+      "attenExp": 1.2,
+      "baseDistance": 300.0,
+      "radiusMeters": 12000.0,
+      "strengthMultiplier": 1.0
+    }
+  },
+  
+  "rrt": {
+    "description": "RRT 随机树优化算法参数",
+    "searchRadiusMeters": 300.0,
+    "stepMeters": 25.0,
+    "maxSamples": 1500,
+    "goalBias": 0.20,
+    "weightDeviation": 0.25,
+    "weightSignal": 18000,
+    "minSeparationMeters": 5.0,
+    "safeSeparationMeters": 15.0,
+    "signalModel": {
+      "attenExp": 1.2,
+      "baseDistance": 300.0,
+      "sigRadiusMeters": 12000.0,
+      "strengthMultiplier": 1.0
+    }
+  }
+}

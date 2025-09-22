@@ -3,6 +3,56 @@
 // (Note: .pragma library omitted due to tooling parse issue; QML engine still treats this as a shared JS module.)
 
 var towers = []
+var config = null
+
+// 配置管理函数
+function loadConfig(resourceUrl) {
+    var url = resourceUrl || 'qrc:/resources/TowerOptimize_config.json'
+    
+    try {
+        var xhr = new XMLHttpRequest()
+        xhr.open('GET', url, false)
+        xhr.send()
+        
+        if (xhr.status === 0 || xhr.status === 200) {
+            try {
+                var cleanedText = xhr.responseText.trim()
+                if (cleanedText.charCodeAt(0) === 0xFEFF) {
+                    cleanedText = cleanedText.substring(1)
+                }
+                config = JSON.parse(cleanedText)
+                console.info('[TowerOptimize] Configuration loaded successfully from:', url, 'version:', config.version)
+                return true
+            } catch(parseError) {
+                console.error('[TowerOptimize] Configuration parse error:', parseError)
+                return false
+            }
+        } else {
+            console.warn('[TowerOptimize] Failed to load configuration, status:', xhr.status)
+            return false
+        }
+    } catch(networkError) {
+        console.error('[TowerOptimize] Configuration load error:', networkError)
+        return false
+    }
+}
+
+function getConfig(section, key, defaultValue) {
+    // 自动加载配置（如果还没有加载）
+    if (!config) {
+        if (!loadConfig()) {
+            console.warn('[TowerOptimize] Using default value for', section + '.' + key, '=', defaultValue)
+            return defaultValue
+        }
+    }
+    
+    if (config && config[section] && config[section][key] !== undefined) {
+        return config[section][key]
+    }
+    
+    console.warn('[TowerOptimize] Config key not found:', section + '.' + key, 'using default:', defaultValue)
+    return defaultValue
+}
 
 function loadTowers(resourceUrl) {
     towers = []
@@ -41,7 +91,10 @@ function optimizeMissionLinear(missionController, planMasterController, ratio) {
         console.warn('[TowerOptimize] No towers loaded, abort optimize')
         return
     }
-    ratio = (ratio === undefined) ? 0.2 : ratio
+    // 从配置文件读取默认比例
+    var defaultRatio = getConfig('linear', 'ratio', 0.2)
+    ratio = (ratio === undefined) ? defaultRatio : ratio
+    console.info('[TowerOptimize] Using linear optimization ratio:', ratio)
     for (var i=1; i<visualItems.count; i++) { // skip home/settings item at 0
         var item = visualItems.get(i)
         if (!item.specifiesCoordinate || item.isStandaloneCoordinate || !item.isSimpleItem || item.isTakeoffItem || item.isLandCommand) {
@@ -133,12 +186,6 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         }
     }
 
-    function logItem(prefix, idx, itm) {
-        try {
-            if (!itm || !itm.coordinate) return
-            console.log('[TowerOptimize]', prefix, 'idx', idx, 'lat', itm.coordinate.latitude, 'lon', itm.coordinate.longitude)
-        } catch(e) {}
-    }
 
     function adjustWaypoint(item, nextItem, prevItem, index) {
         var orig = item.coordinate
@@ -256,13 +303,11 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             if (dPrev < safeSeparation) revert = true
         }
         if (!revert) {
-            logItem('BEFORE', index, item)
             item.coordinate = newCoord
             if (item.dirty !== undefined) item.dirty = true
-            logItem('AFTER', index, item)
         } else {
             // Keep original (no move)
-            logItem('SKIP', index, item)
+            console.warn('[TowerOptimize] Revert idx', index, 'to original due to spacing violation', dNext.toFixed(2), 'm')
         }
     }
 
@@ -368,12 +413,6 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
         return composite
     }
 
-    function logItem(prefix, idx, itm) {
-        try {
-            if (!itm || !itm.coordinate) return
-            console.log('[TowerOptimize]', prefix, 'idx', idx, 'lat', itm.coordinate.latitude, 'lon', itm.coordinate.longitude)
-        } catch(e) {}
-    }
 
     // 快照坐标，必要时回滚
     var originalCoords = []
@@ -487,12 +526,10 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
         }
 
         if (!revert) {
-            logItem('BEFORE', index, item)
             item.coordinate = newCoord
             if (item.dirty !== undefined) item.dirty = true
-            logItem('AFTER', index, item)
         } else {
-            logItem('SKIP', index, item)
+            console.warn('[TowerOptimize] Revert idx', index, 'to original due to spacing violation', dNext.toFixed(2), 'm')
         }
     }
 

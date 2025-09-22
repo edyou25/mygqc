@@ -360,6 +360,9 @@
         <qresource prefix="/data">
             <file alias="towers.json">resources/towers.json</file>
         </qresource>
+    <qresource prefix="/resources">
+        <file alias="TowerOptimize_config.json">resources/TowerOptimize_config.json</file>
+    </qresource>
     <qresource prefix="/MockLink">
         <file alias="APMArduSubMockLink.params">src/comm/APMArduSubMockLink.params</file>
         <file alias="PX4MockLink.params">src/comm/PX4MockLink.params</file>
