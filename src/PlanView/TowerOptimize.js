@@ -19,17 +19,17 @@ function loadTowers(resourceUrl) {
                             towers = data.map(function(t){
                                 return { lat: t.latitude || t.lat, lon: t.longitude || t.lon, name: t.name || '' }
                             })
-                            console.log('[TowerOptimize] Loaded towers:', towers.length)
+                            console.info('[TowerOptimize] Loaded towers:', towers.length)
                         }
-                    } catch(e) { console.log('[TowerOptimize] parse error', e) }
+                    } catch(e) { console.error('[TowerOptimize] parse error', e) }
                 } else {
-                    console.log('[TowerOptimize] load failed status', xhr.status)
+                    console.error('[TowerOptimize] load failed status', xhr.status)
                 }
             }
         }
         xhr.send()
     } catch(e) {
-        console.log('[TowerOptimize] exception loading towers', e)
+        console.error('[TowerOptimize] exception loading towers', e)
     }
 }
 
@@ -38,7 +38,7 @@ function optimizeMissionLinear(missionController, planMasterController, ratio) {
     var visualItems = missionController.visualItems
     if (visualItems.count < 2) return
     if (!towers.length) {
-        console.log('[TowerOptimize] No towers loaded, abort optimize')
+        console.warn('[TowerOptimize] No towers loaded, abort optimize')
         return
     }
     ratio = (ratio === undefined) ? 0.2 : ratio
@@ -65,7 +65,7 @@ function optimizeMissionLinear(missionController, planMasterController, ratio) {
         }
     }
     if (planMasterController) planMasterController.dirty = true
-    console.log('[TowerOptimize] optimizeMission applied; ratio=' + ratio)
+    console.info('[TowerOptimize] optimizeMission applied; ratio=' + ratio)
 }
 
 function getTowers() { return towers }
@@ -82,7 +82,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     var visualItems = missionController.visualItems
     if (visualItems.count < 3) return
     if (!towers.length) {
-        console.log('[TowerOptimize] No towers loaded, abort A* optimize')
+        console.warn('[TowerOptimize] No towers loaded, abort A* optimize')
         return
     }
     options = options || {}
@@ -288,7 +288,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                     var recO = originalCoords[oi]
                     curr.coordinate = recO.coord
                     if (curr.dirty !== undefined) curr.dirty = true
-                    console.log('[TowerOptimize] Reverted idx', vi, 'due to close separation', sep.toFixed(2),'m')
+                    console.warn('[TowerOptimize] Reverted idx', vi, 'due to close separation', sep.toFixed(2),'m')
                     break
                 }
             }
@@ -296,7 +296,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     }
     // Post-condition: ensure count unchanged
     if (visualItems.count !== originalCoords.length) {
-        console.log('[TowerOptimize] Waypoint count changed unexpectedly. Reverting coordinates.')
+        console.error('[TowerOptimize] Waypoint count changed unexpectedly. Reverting coordinates.')
         for (var ri=0; ri<originalCoords.length; ri++) {
             var rec = originalCoords[ri]
             if (rec.index < visualItems.count) {
@@ -309,7 +309,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         }
     }
     if (planMasterController) planMasterController.dirty = true
-    console.log('[TowerOptimize] optimizeMissionAStar A* applied')
+    console.info('[TowerOptimize] optimizeMissionAStar A* applied')
 }
 
 // ...existing code...
@@ -319,7 +319,7 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
     var visualItems = missionController.visualItems
     if (visualItems.count < 3) return
     if (!towers.length) {
-        console.log('[TowerOptimize] No towers loaded, abort RRT optimize')
+        console.warn('[TowerOptimize] No towers loaded, abort RRT optimize')
         return
     }
 
@@ -519,7 +519,7 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
                     var recO = originalCoords[oi]
                     curr.coordinate = recO.coord
                     if (curr.dirty !== undefined) curr.dirty = true
-                    console.log('[TowerOptimize][RRT] Reverted idx', vi, 'due to close separation', sep.toFixed(2),'m')
+                    console.warn('[TowerOptimize][RRT] Reverted idx', vi, 'due to close separation', sep.toFixed(2),'m')
                     break
                 }
             }
@@ -528,7 +528,7 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
 
     // 数量检查（理论不会变化）
     if (visualItems.count !== originalCoords.length) {
-        console.log('[TowerOptimize][RRT] Waypoint count changed unexpectedly. Reverting coordinates.')
+        console.error('[TowerOptimize][RRT] Waypoint count changed unexpectedly. Reverting coordinates.')
         for (var ri=0; ri<originalCoords.length; ri++) {
             var rec = originalCoords[ri]
             if (rec.index < visualItems.count) {
@@ -542,7 +542,7 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
     }
 
     if (planMasterController) planMasterController.dirty = true
-    console.log('[TowerOptimize] optimizeMissionRRT applied')
+    console.info('[TowerOptimize] optimizeMissionRRT applied')
 }
 
 // ...existing code...
