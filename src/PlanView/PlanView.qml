@@ -334,6 +334,8 @@ Item {
             allowGCSLocationCenter:     true
             allowVehicleLocationCenter: true
             planView:                   true
+            
+            property alias astarDebugLayer: astarDebugLayer
 
             zoomLevel:                  QGroundControl.flightMapZoom
             center:                     QGroundControl.flightMapPosition
@@ -494,6 +496,26 @@ Item {
                 planView:               true
                 opacity:                _editingLayer != _layerRallyPoints ? editorMap._nonInteractiveOpacity : 1
             }
+
+            // A* Debug Layer
+            Loader {
+                id: astarDebugLayer
+                anchors.fill: parent
+                active: false
+                source: "qrc:/qml/AStarDebugLayer.qml"
+                
+                property var map: editorMap
+                property bool debugVisible: false
+                
+                onLoaded: {
+                    item.map = editorMap
+                    item.visible = Qt.binding(function() { return astarDebugLayer.debugVisible })
+                }
+                
+                function refreshDebugData() {
+                    if (item) item.refreshDebugData()
+                }
+            }
         }
 
         //-----------------------------------------------------------
@@ -617,6 +639,24 @@ Item {
                         checked: editorMap.showSignalStrengthLayer
                         visible: toolStrip._isMissionLayer
                         onTriggered: editorMap.showSignalStrengthLayer = !editorMap.showSignalStrengthLayer
+                    },
+                    ToolStripAction {
+                        id: astarDebugToggle
+                        text: qsTr("A* Debug")
+                        iconSource: "/qmlimages/MapCenter.svg"
+                        checkable: true
+                        checked: false
+                        visible: toolStrip._isMissionLayer
+                        onTriggered: {
+                            checked = !checked
+                            if (checked) {
+                                editorMap.astarDebugLayer.active = true
+                                editorMap.astarDebugLayer.debugVisible = true
+                                editorMap.astarDebugLayer.refreshDebugData()
+                            } else {
+                                editorMap.astarDebugLayer.debugVisible = false
+                            }
+                        }
                     }
                 ]
             }

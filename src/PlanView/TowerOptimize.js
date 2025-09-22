@@ -4,6 +4,7 @@
 
 var towers = []
 var config = null
+var debugSearchTrees = [] // 存储A*搜索树用于可视化
 
 // 配置管理函数
 function loadConfig(resourceUrl) {
@@ -123,6 +124,10 @@ function optimizeMissionLinear(missionController, planMasterController, ratio) {
 
 function getTowers() { return towers }
 
+function getDebugSearchTrees() { return debugSearchTrees }
+
+function clearDebugSearchTrees() { debugSearchTrees = [] }
+
 // A* based adjustment: For each eligible waypoint (excluding last), perform grid search
 // to find a new coordinate balancing: (1) stay close to original waypoint, (2) be closer
 // to next waypoint (progress), (3) maximize signal strength from towers.
@@ -138,18 +143,23 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         console.warn('[TowerOptimize] No towers loaded, abort A* optimize')
         return
     }
+    
+    // 清除之前的debug数据
+    clearDebugSearchTrees()
     options = options || {}
-    var cellSize = options.cellSizeMeters || 30            // grid cell size in meters
-    var radiusCells = options.radiusCells || 10            // search radius (square) => (2*radiusCells+1)^2 nodes max
-    var wDev = options.weightDeviation || 0.25             // penalty weight for distance from original waypoint
-    var wSig = options.weightSignal || 18000                // reward weight for signal strength
-    var maxIterations = options.maxIterations || 8000
+    
+    // 从配置文件读取A*参数
+    var cellSize = options.cellSizeMeters || getConfig('astar', 'cellSizeMeters', 30)
+    var radiusCells = options.radiusCells || getConfig('astar', 'radiusCells', 10)
+    var wDev = options.weightDeviation || getConfig('astar', 'weightDeviation', 0.25)
+    var wSig = options.weightSignal || getConfig('astar', 'weightSignal', 18000)
+    var maxIterations = options.maxIterations || getConfig('astar', 'maxIterations', 8000)
 
     // Signal model parameters (align with heatmap layer for consistency)
-    var attenExp = 1.2
-    var baseDistance = 300.0
-    var radiusMeters = 12000.0
-    var strengthMultiplier = 1.0
+    var attenExp = getConfig('astar', 'attenuation_exponent', 1.2)
+    var baseDistance = getConfig('astar', 'base_distance_meters', 300.0)
+    var radiusMeters = getConfig('astar', 'signal_radius_meters', 12000.0)
+    var strengthMultiplier = getConfig('astar', 'strength_multiplier', 1.0)
 
     function distanceMeters(lat1, lon1, lat2, lon2) {
         var R = 6371000
@@ -174,8 +184,8 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     }
 
     // Minimum separation (meters) to prevent collapsing two adjacent waypoints into effectively one
-    var minSeparation = options.minSeparationMeters || 5.0          // basic revert threshold
-    var safeSeparation = options.safeSeparationMeters || 15.0        // stronger spacing to avoid downstream merge logic
+    var minSeparation = options.minSeparationMeters || getConfig('astar', 'min_separation_meters', 5.0)
+    var safeSeparation = options.safeSeparationMeters || getConfig('astar', 'safe_separation_meters', 15.0)
 
     // Snapshot original coordinates to allow revert if something unexpected changes count
     var originalCoords = []
@@ -196,6 +206,18 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         var cosLat = Math.cos(lat0 * Math.PI/180)
         var metersPerDegLat = 111320.0
         var metersPerDegLon = metersPerDegLat * cosLat
+        
+        // Debug数据收集
+        var debugTree = {
+            waypointIndex: index,
+            originalCoord: { lat: lat0, lon: lon0 },
+            targetCoord: { lat: next.latitude, lon: next.longitude },
+            nodes: [],
+            edges: [],
+            finalPath: [],
+            bestNode: null
+        }
+        console.info('[TowerOptimize] Starting A* for waypoint', index, 'from', lat0.toFixed(6), lon0.toFixed(6))
 
         function toCoord(gx, gy) { // grid offset in cells
             var dxMeters = gx * cellSize
@@ -255,11 +277,24 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             iterations++
             var current = popBest()
             closed[current.key] = true
+            
+            // 记录当前节点到debug树
+            var currentCoord = toCoord(current.gx, current.gy)
+            debugTree.nodes.push({
+                coord: { lat: currentCoord.latitude, lon: currentCoord.longitude },
+                gx: current.gx, gy: current.gy,
+                f: current.f, g: current.g, h: current.h,
+                dev: current.dev, sig: current.sig,
+                isClosed: true,
+                isBest: false
+            })
+            
             // Track best (lowest f) node that is closer to next
             if (current.h < bestSoFar.h || (current.h === bestSoFar.h && current.f < bestSoFar.f)) {
                 bestSoFar = current
             }
             if (current.key === goalKey) { bestSoFar = current; break }
+            
             for (var d=0; d<neighborDirs.length; d++) {
                 var dx = neighborDirs[d][0]
                 var dy = neighborDirs[d][1]
@@ -275,12 +310,33 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                 var h = heuristic(ngx, ngy)
                 var f = g + wDev*dev + h - wSig*sig
                 var existing = open[key]
+                
+                // 记录边连接
+                var childCoord = toCoord(ngx, ngy)
+                debugTree.edges.push({
+                    from: { lat: currentCoord.latitude, lon: currentCoord.longitude },
+                    to: { lat: childCoord.latitude, lon: childCoord.longitude },
+                    cost: stepCost,
+                    f: f
+                })
+                
                 if (existing) {
                     if (f < existing.f) {
                         existing.g = g; existing.dev = dev; existing.sig = sig; existing.h = h; existing.f = f; existing.parent = current
                     }
                 } else {
-                    pushNode({ gx:ngx, gy:ngy, g:g, dev:dev, sig:sig, h:h, f:f, key:key, parent: current })
+                    var newNode = { gx:ngx, gy:ngy, g:g, dev:dev, sig:sig, h:h, f:f, key:key, parent: current }
+                    pushNode(newNode)
+                    
+                    // 记录open节点
+                    debugTree.nodes.push({
+                        coord: { lat: childCoord.latitude, lon: childCoord.longitude },
+                        gx: ngx, gy: ngy,
+                        f: f, g: g, h: h,
+                        dev: dev, sig: sig,
+                        isClosed: false,
+                        isBest: false
+                    })
                 }
             }
         }
@@ -288,6 +344,34 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         var target = bestSoFar
         var chosen = toCoord(target.gx, target.gy)
         var newCoord = QtPositioning.coordinate(chosen.latitude, chosen.longitude, orig.altitude)
+        
+        // 记录最佳节点和最终路径
+        debugTree.bestNode = {
+            coord: { lat: chosen.latitude, lon: chosen.longitude },
+            gx: target.gx, gy: target.gy,
+            f: target.f, g: target.g, h: target.h,
+            dev: target.dev, sig: target.sig
+        }
+        
+        // 回溯最终路径
+        var pathNode = target
+        while (pathNode) {
+            var pathCoord = toCoord(pathNode.gx, pathNode.gy)
+            debugTree.finalPath.unshift({
+                coord: { lat: pathCoord.latitude, lon: pathCoord.longitude },
+                gx: pathNode.gx, gy: pathNode.gy,
+                f: pathNode.f, g: pathNode.g, h: pathNode.h
+            })
+            pathNode = pathNode.parent
+        }
+        
+        // 标记最佳节点
+        for (var ni = 0; ni < debugTree.nodes.length; ni++) {
+            if (debugTree.nodes[ni].gx === target.gx && debugTree.nodes[ni].gy === target.gy) {
+                debugTree.nodes[ni].isBest = true
+                break
+            }
+        }
         // Separation checks
         var revert = false
         var dNext = distanceMeters(newCoord.latitude, newCoord.longitude, next.latitude, next.longitude)
@@ -305,20 +389,34 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         if (!revert) {
             item.coordinate = newCoord
             if (item.dirty !== undefined) item.dirty = true
+            debugTree.applied = true
+            debugTree.finalCoord = { lat: newCoord.latitude, lon: newCoord.longitude }
         } else {
             // Keep original (no move)
             console.warn('[TowerOptimize] Revert idx', index, 'to original due to spacing violation', dNext.toFixed(2), 'm')
+            debugTree.applied = false
+            debugTree.revertReason = 'spacing_violation'
         }
+        
+        // 保存debug数据
+        console.info('[TowerOptimize] Saving debug tree for waypoint', index, 'with', debugTree.nodes.length, 'nodes')
+        debugSearchTrees.push(debugTree)
     }
 
+    console.info('[TowerOptimize] A* processing', visualItems.count - 2, 'waypoints for debug data')
     for (var i=1; i<visualItems.count-1; i++) { // skip first and last
         var item = visualItems.get(i)
         var nextItem = visualItems.get(i+1)
         var prevItem = visualItems.get(i-1)
         if (!item || !nextItem) continue
-        if (!item.specifiesCoordinate || item.isStandaloneCoordinate || !item.isSimpleItem || item.isTakeoffItem || item.isLandCommand) continue
+        if (!item.specifiesCoordinate || item.isStandaloneCoordinate || !item.isSimpleItem || item.isTakeoffItem || item.isLandCommand) {
+            console.info('[TowerOptimize] Skipping waypoint', i, 'due to constraints')
+            continue
+        }
+        console.info('[TowerOptimize] Adjusting waypoint', i)
         adjustWaypoint(item, nextItem, prevItem, i)
     }
+    console.info('[TowerOptimize] Collected', debugSearchTrees.length, 'debug trees')
     // Additional spacing validation pass; revert any violations using snapshot
     for (var vi=1; vi<visualItems.count; vi++) {
         var curr = visualItems.get(vi)
