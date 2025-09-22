@@ -65,7 +65,7 @@ function optimizeMissionLinear(missionController, planMasterController, ratio) {
         }
     }
     if (planMasterController) planMasterController.dirty = true
-    console.log('[TowerOptimize] optimizeMission applied; ratio=' + ratio, 'color:red;')
+    console.log('[TowerOptimize] optimizeMission applied; ratio=' + ratio)
 }
 
 function getTowers() { return towers }

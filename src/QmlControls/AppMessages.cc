@@ -20,6 +20,9 @@
 #include <QStringListModel>
 #include <QtConcurrent>
 #include <QTextStream>
+#include <QDir>
+#include <QCoreApplication>
+#include <QDateTime>
 
 Q_GLOBAL_STATIC(AppLogModel, debug_model)
 
@@ -114,5 +117,61 @@ void AppLogModel::threadsafeLog(const QString message)
         QTextStream out(&_logFile);
         out << message << "\n";
         _logFile.flush();
+    }
+
+    // Additional project-root log file for TowerOptimize JS module
+    // Write messages containing the tag to a dedicated file under <projectRoot>/log/TowerOptimize.log
+    static QFile s_towerOptimizeFile;
+    static bool s_towerLogInitialized = false;
+    if (message.contains("[TowerOptimize]")) {
+        if (!s_towerLogInitialized) {
+            s_towerLogInitialized = true;
+            // Locate project root by looking for qgroundcontrol.pro file
+            QDir appDir(QCoreApplication::applicationDirPath());
+            QDir candidate = appDir;
+            
+            // First check current app directory
+            if (!candidate.exists("qgroundcontrol.pro")) {
+                // Check parent directory (common when running from build folder)
+                QDir parent = appDir;
+                parent.cdUp();
+                if (parent.exists("qgroundcontrol.pro")) {
+                    candidate = parent;
+                } else {
+                    // Check grandparent directory (in case we're in build/debug or similar)
+                    QDir grandparent = parent;
+                    grandparent.cdUp();
+                    if (grandparent.exists("qgroundcontrol.pro")) {
+                        candidate = grandparent;
+                    }
+                }
+            }
+            
+            // Create log directory if it doesn't exist
+            QDir logDir(candidate.filePath("log"));
+            if (!logDir.exists()) {
+                logDir.mkpath(".");
+            }
+            
+            // Set up TowerOptimize log file with timestamp
+            QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
+            const QString towerLogPath = logDir.filePath(QString("TowerOptimize_%1.log").arg(timestamp));
+            s_towerOptimizeFile.setFileName(towerLogPath);
+            if (s_towerOptimizeFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                // Write header with timestamp when starting new log session
+                QTextStream headerStream(&s_towerOptimizeFile);
+                headerStream << "=== TowerOptimize Log Session Started at " 
+                           << QDateTime::currentDateTime().toString(Qt::ISODate) << " ===\n";
+                s_towerOptimizeFile.flush();
+            }
+        }
+        
+        // Write TowerOptimize message to dedicated log file
+        if (s_towerOptimizeFile.isOpen()) {
+            QTextStream towerStream(&s_towerOptimizeFile);
+            towerStream << QDateTime::currentDateTime().toString("hh:mm:ss.zzz") 
+                       << " " << message << "\n";
+            s_towerOptimizeFile.flush();
+        }
     }
 }
