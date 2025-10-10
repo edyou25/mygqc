@@ -334,7 +334,7 @@ QList<int> AppSettings::firstRunPromptsIdsVariantToList(const QVariant& firstRun
 {
     QList<int> rgIds;
 
-    QStringList strIdList = firstRunPromptIds.toString().split(",", Qt::SkipEmptyParts);
+    QStringList strIdList = firstRunPromptIds.toString().split(",", QString::SkipEmptyParts);
 
     for (const QString& strId: strIdList) {
         rgIds.append(strId.toInt());

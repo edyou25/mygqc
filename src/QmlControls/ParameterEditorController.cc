@@ -369,7 +369,7 @@ void ParameterEditorController::_searchTextChanged(void)
 {
     QObjectList newParameterList;
 
-    QStringList rgSearchStrings = _searchText.split(' ', Qt::SkipEmptyParts);
+    QStringList rgSearchStrings = _searchText.split(' ', QString::SkipEmptyParts);
 
     if (rgSearchStrings.isEmpty() && !_showModifiedOnly) {
         ParameterEditorCategory* category = _categories.count() ? _categories.value<ParameterEditorCategory*>(0) : nullptr;

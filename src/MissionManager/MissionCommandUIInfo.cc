@@ -411,7 +411,7 @@ bool MissionCommandUIInfo::loadJsonInfo(const QJsonObject& jsonObject, bool requ
             paramInfo->_param =         i;
             paramInfo->_units =         paramObject.value(_unitsJsonKey).toString();
             paramInfo->_nanUnchanged =  paramObject.value(_nanUnchangedJsonKey).toBool(false);
-            paramInfo->_enumStrings =   paramObject.value(_enumStringsJsonKey).toString().split(",", Qt::SkipEmptyParts);
+            paramInfo->_enumStrings =   paramObject.value(_enumStringsJsonKey).toString().split(",", QString::SkipEmptyParts);
 
             // The min and max values are defaulted correctly already, so only set them if a value is present in the JSON.
             if (paramObject.value(_minJsonKey).isDouble()) {
@@ -435,7 +435,7 @@ bool MissionCommandUIInfo::loadJsonInfo(const QJsonObject& jsonObject, bool requ
                 paramInfo->_defaultValue = paramInfo->_nanUnchanged ? std::numeric_limits<double>::quiet_NaN() : 0;
             }
 
-            QStringList enumValues = paramObject.value(_enumValuesJsonKey).toString().split(",", Qt::SkipEmptyParts);
+            QStringList enumValues = paramObject.value(_enumValuesJsonKey).toString().split(",", QString::SkipEmptyParts);
             for (const QString &enumValue: enumValues) {
                 bool    convertOk;
                 double  value = enumValue.toDouble(&convertOk);

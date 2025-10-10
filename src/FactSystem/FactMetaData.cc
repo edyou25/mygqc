@@ -1552,13 +1552,13 @@ bool FactMetaData::_parseEnum(const QJsonObject& jsonObject, DefineMap_t defineM
     }
 
     QString strings = jsonObject.value(_enumStringsJsonKey).toString();
-    rgDescriptions = defineMap.value(strings, strings).split(",", Qt::SkipEmptyParts);
+    rgDescriptions = defineMap.value(strings, strings).split(",", QString::SkipEmptyParts);
     for (auto& desc: rgDescriptions) {
         desc = desc.trimmed();
     }
 
     QString values = jsonObject.value(_enumValuesJsonKey).toString();
-    rgValues = defineMap.value(values, values).split(",", Qt::SkipEmptyParts);
+    rgValues = defineMap.value(values, values).split(",", QString::SkipEmptyParts);
     for (auto& value: rgValues) {
         value = value.trimmed();
     }
