@@ -156,7 +156,13 @@ Map {
                     try {
                         var arr = JSON.parse(xhr.responseText)
                         for (var i=0; i<arr.length; i++) {
-                            towerModel.append({ name: arr[i].name, latitude: arr[i].latitude, longitude: arr[i].longitude })
+                            towerModel.append({ 
+                                name: arr[i].name, 
+                                latitude: arr[i].latitude, 
+                                longitude: arr[i].longitude,
+                                type: arr[i].type || (arr[i].name.indexOf('Sensor') !== -1 ? 'sensor' : 'tower'),
+                                no_fly_radius: arr[i].no_fly_radius || (arr[i].name.indexOf('Sensor') !== -1 ? 600 : 500)
+                            })
                         }
                     } catch(e) {
                         console.log('Failed to parse towers.json', e)
@@ -179,14 +185,16 @@ Map {
                 spacing: 2
                 Image {
                     id: icon
-                    source: '/res/QGCLogoArrow'
-                    width: 24; height: 24
+                    source: type === 'sensor' ? '/res/QGCLogoFull' : '/res/QGCLogoArrow'
+                    width: type === 'sensor' ? 28 : 24
+                    height: type === 'sensor' ? 28 : 24
                     fillMode: Image.PreserveAspectFit
                 }
                 Rectangle {
                     radius: 3
-                    color: Qt.rgba(0,0,0,0.6)
-                    border.width: 0
+                    color: type === 'sensor' ? Qt.rgba(1,0,0,0.8) : Qt.rgba(0,0,0,0.6)
+                    border.width: type === 'sensor' ? 1 : 0
+                    border.color: type === 'sensor' ? 'white' : 'transparent'
                     anchors.horizontalCenter: parent.horizontalCenter
                     property int hPad: 4
                     property int vPad: 2
@@ -197,6 +205,7 @@ Map {
                         text: name
                         color: 'white'
                         font.pixelSize: 12
+                        font.bold: type === 'sensor'
                         anchors.centerIn: parent
                     }
                 }
@@ -220,5 +229,41 @@ Map {
             target: _map
             function onCenterChanged() { if (signalStrengthLayer) signalStrengthLayer.map = _map }
         }
+    }
+
+    // Weather no-fly circular zones overlay (stable Loader-based layer)
+    property bool showWeatherLayer: false
+    property var weatherNoFlyLayer: null
+    Loader {
+        id: weatherLoader
+        active: showWeatherLayer
+        source: "qrc:/qml/QGroundControl/FlightMap/WeatherNoFlyLayer.qml"
+        onLoaded: {
+            console.log('[FlightMap] WeatherNoFlyLayer loaded successfully')
+            console.log('[FlightMap] towerModel count:', towerModel.count)
+            item.map = _map
+            item.towerModel = towerModel
+            item.z = QGroundControl.zOrderMapItems - 2
+            weatherNoFlyLayer = item
+        }
+        onStatusChanged: {
+            if (status === Loader.Error) {
+                console.error('[FlightMap] Failed to load WeatherNoFlyLayer:', weatherLoader.sourceComponent)
+            }
+        }
+        anchors.fill: parent
+        Connections {
+            target: _map
+            function onCenterChanged() { 
+                if (weatherNoFlyLayer) {
+                    weatherNoFlyLayer.map = _map 
+                }
+            }
+        }
+    }
+    
+    // Debug: Monitor showWeatherLayer changes
+    onShowWeatherLayerChanged: {
+        console.log('[FlightMap] showWeatherLayer changed to:', showWeatherLayer)
     }
 } // Map

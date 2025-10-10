@@ -336,11 +336,8 @@ Item {
             planView:                   true
             
             property alias astarDebugLayer: astarDebugLayer
-                // Weather no-fly layer toggle and data
-                property bool showWeatherLayer: true
-                // Array of { lat, lon, radius (meters), severity (1-3) }
-                property var weatherStations: []
-
+            // Weather layer is now handled by FlightMap.qml
+            
             zoomLevel:                  QGroundControl.flightMapZoom
             center:                     QGroundControl.flightMapPosition
 
@@ -352,7 +349,9 @@ Item {
             property real _nonInteractiveOpacity:  0.5
 
             // Initial map position duplicates Fly view position
-            Component.onCompleted: editorMap.center = QGroundControl.flightMapPosition
+            Component.onCompleted: {
+                editorMap.center = QGroundControl.flightMapPosition
+            }
 
             QGCMapPalette { id: mapPal; lightColors: editorMap.isSatelliteMap }
 
@@ -362,44 +361,11 @@ Item {
             onCenterChanged: {
                 QGroundControl.flightMapPosition = center
             }
+            
+            // Weather layer visibility is now handled by FlightMap.qml
 
-            // Weather stations: marker + no-fly circle
-            Repeater {
-                model: editorMap.showWeatherLayer ? editorMap.weatherStations : []
-
-                delegate: Item {
-                    readonly property var coord: QtPositioning.coordinate(modelData.lat, modelData.lon)
-                    readonly property real zoneRadius: modelData.radius || 500
-                    readonly property int severity: modelData.severity || 1   // 1-3 low->high
-
-                    MapCircle {
-                        center: coord
-                        radius: zoneRadius
-                        color: severity >= 2 ? "#40FF0000" : "#20FF0000"
-                        border.color: severity >= 2 ? "#A0FF0000" : "#80FF0000"
-                        border.width: 2
-                        z: QGroundControl.zOrderMapItems - 2
-                    }
-
-                    MapQuickItem {
-                        coordinate: coord
-                        anchorPoint.x: 8
-                        anchorPoint.y: 8
-                        z: QGroundControl.zOrderMapItems
-
-                        sourceItem: Rectangle {
-                            width: 16; height: 16; radius: 8
-                            color: severity >= 2 ? "#FFFF0000" : "#FFFF8000"
-                            border.width: 2
-                            border.color: "white"
-                            Text { anchors.centerIn: parent; text: "W"; color: "white"; font.pixelSize: 9; font.bold: true }
-                            QGCMouseArea { id: __ma; anchors.fill: parent; hoverEnabled: true }
-                            ToolTip.visible: __ma.containsMouse
-                            ToolTip.text: `Weather Station\nR=${zoneRadius} m\nSeverity=${severity}`
-                        }
-                    }
-                }
-            }
+            // Weather layer is now handled by FlightMap.qml WeatherNoFlyLayer
+            // Old Repeater removed to avoid conflicts
 
             MouseArea {
                 anchors.fill: parent
@@ -859,7 +825,10 @@ Item {
                         checkable: true
                         checked: editorMap.showWeatherLayer
                         visible: toolStrip._isMissionLayer
-                        onTriggered: editorMap.showWeatherLayer = !editorMap.showWeatherLayer
+                        onTriggered: {
+                            editorMap.showWeatherLayer = !editorMap.showWeatherLayer
+                            console.log('[PlanView] Weather layer toggled:', editorMap.showWeatherLayer)
+                        }
                     }
                 ]
             }
