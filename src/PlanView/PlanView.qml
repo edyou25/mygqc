@@ -286,7 +286,60 @@ Item {
     }
 
     // Load towers once when PlanView root completes
-    Component.onCompleted: TowerOpt.loadTowers()
+    Component.onCompleted: {
+        console.log('[PlanView] ===== Testing C++ Backend =====')
+        console.log('[PlanView] typeof PathOptimizationManager:', typeof PathOptimizationManager)
+        
+        // C++后端初始化（用于碰撞检测）
+        if (typeof PathOptimizationManager !== 'undefined') {
+            console.log('[PlanView] ✓✓✓ C++ backend IS AVAILABLE!')
+            console.log('[PlanView] Instance:', PathOptimizationManager)
+            console.log('[PlanView] Calling C++ loadDefaultTowers()...')
+            PathOptimizationManager.loadDefaultTowers()
+            PathOptimizationManager.loadDefaultConfig()
+            
+            // 测试C++ A*算法
+            try {
+                console.log('[PlanView] ===== Testing C++ A* Algorithm =====')
+                var testStart = QtPositioning.coordinate(22.710, 114.404, 100)
+                var testEnd = QtPositioning.coordinate(22.712, 114.408, 100)
+                
+                console.log('[Test] Original waypoint:', testStart.latitude.toFixed(6), testStart.longitude.toFixed(6))
+                console.log('[Test] Target waypoint:', testEnd.latitude.toFixed(6), testEnd.longitude.toFixed(6))
+                
+                // 计算原始信号强度
+                var origSignal = PathOptimizationManager.towerOptimizer.calculateSignalStrength(testStart)
+                console.log('[Test] Original signal strength:', origSignal.toFixed(4))
+                
+                // 运行C++ A*优化
+                console.log('[Test] Running C++ A* optimization...')
+                var optimized = PathOptimizationManager.towerOptimizer.optimizeSingleWaypoint(testStart, testEnd, 100)
+                console.log('[Test] Optimized waypoint:', optimized.latitude.toFixed(6), optimized.longitude.toFixed(6))
+                
+                // 计算优化后的信号强度
+                var optSignal = PathOptimizationManager.towerOptimizer.calculateSignalStrength(optimized)
+                console.log('[Test] Optimized signal strength:', optSignal.toFixed(4))
+                
+                // 计算改善百分比
+                var improvement = ((optSignal - origSignal) / Math.max(origSignal, 0.0001) * 100)
+                console.log('[Test] Signal improvement:', improvement.toFixed(1), '%')
+                
+                // 计算移动距离
+                var moved = testStart.distanceTo(optimized)
+                console.log('[Test] Waypoint moved:', moved.toFixed(2), 'meters')
+                
+                console.log('[Test] ===== C++ A* Test Complete =====')
+            } catch(e) {
+                console.error('[Test] C++ A* test failed:', e.toString())
+            }
+        } else {
+            console.log('[PlanView] ✗✗✗ C++ backend NOT available')
+        }
+        
+        // JavaScript数据加载（用于信号计算和路径优化）
+        console.log('[PlanView] Loading JavaScript towers data...')
+        TowerOpt.loadTowers()
+    }
 
 
     function selectNextNotReady() {

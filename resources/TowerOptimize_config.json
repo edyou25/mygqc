@@ -47,5 +47,14 @@
       "sigRadiusMeters": 12000.0,
       "strengthMultiplier": 1.0
     }
+  },
+  
+  "collision": {
+    "description": "碰撞检测参数",
+    "enableCollisionCheck": true,
+    "minAltitudeAGL": 30.0,
+    "terrainClearance": 10.0,
+    "weatherCollisionCheck": true,
+    "weatherBufferMeters": 50.0
   }
 }

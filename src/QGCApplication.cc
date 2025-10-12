@@ -81,6 +81,8 @@
 #include "ParameterManager.h"
 #include "SettingsManager.h"
 #include "QGCCorePlugin.h"
+#include "PathOptimizationManager.h"
+#include "TowerOptimizer.h"
 #include "QGCCameraManager.h"
 #include "CameraCalc.h"
 #include "VisualMissionItem.h"
@@ -483,6 +485,13 @@ void QGCApplication::_initCommon()
     qmlRegisterUncreatableType<LogReplayLink>       (kQGroundControl,                       1, 0, "LogReplayLink",              kRefOnly);
     qmlRegisterUncreatableType<InstrumentValueData> (kQGroundControl,                       1, 0, "InstrumentValueData",        kRefOnly);
     qmlRegisterType<LogReplayLinkController>        (kQGroundControl,                       1, 0, "LogReplayLinkController");
+    
+    // PathOptimization module
+    qmlRegisterSingletonType<PathOptimizationManager>(kQGroundControl, 1, 0, "PathOptimizationManager",
+        [](QQmlEngine*, QJSEngine*) -> QObject* {
+            return PathOptimizationManager::instance();
+        });
+    qmlRegisterUncreatableType<TowerOptimizer>      (kQGroundControl,                       1, 0, "TowerOptimizer",             "Use PathOptimizationManager.towerOptimizer");
 #if !defined(QGC_DISABLE_MAVLINK_INSPECTOR)
     qmlRegisterUncreatableType<MAVLinkChartController> (kQGroundControl,                    1, 0, "MAVLinkChart",               kRefOnly);
 #endif

@@ -2,9 +2,36 @@
 // Helper for loading tower locations and optimizing mission waypoints toward nearest tower.
 // (Note: .pragma library omitted due to tooling parse issue; QML engine still treats this as a shared JS module.)
 
+.import QGroundControl 1.0 as QGC
+.import QtPositioning 5.2 as Pos
+
 var towers = []
 var config = null
 var debugSearchTrees = [] // 存储A*搜索树用于可视化
+var weatherSensors = []   // 存储天气传感器位置（禁飞区）
+var pathOptManager = null // C++ PathOptimizationManager 实例
+
+// 初始化C++后端
+function initCppBackend() {
+    console.log('[TowerOptimize] Attempting to initialize C++ backend...')
+    try {
+        pathOptManager = QGC.PathOptimizationManager
+        console.log('[TowerOptimize] PathOptimizationManager:', pathOptManager)
+        if (pathOptManager) {
+            console.info('[TowerOptimize] ✓ C++ backend available! Loading data...')
+            var towersLoaded = pathOptManager.loadDefaultTowers()
+            var configLoaded = pathOptManager.loadDefaultConfig()
+            console.info('[TowerOptimize] ✓ C++ data loaded: towers=' + towersLoaded + ', config=' + configLoaded)
+            return true
+        } else {
+            console.warn('[TowerOptimize] PathOptimizationManager is null/undefined')
+        }
+    } catch(e) {
+        console.warn('[TowerOptimize] C++ backend error:', e.toString())
+    }
+    console.warn('[TowerOptimize] Falling back to JavaScript implementation')
+    return false
+}
 
 // 配置管理函数
 function loadConfig(resourceUrl) {
@@ -76,29 +103,51 @@ function getConfig(section, key, defaultValue) {
 }
 
 function loadTowers(resourceUrl) {
+    // 尝试初始化C++后端（会加载C++侧的数据）
+    if (!pathOptManager) {
+        initCppBackend()
+    }
+    
+    // 无论是否有C++后端，都加载JavaScript侧的数据
+    // JavaScript的signalStrength会用这些数据
     towers = []
     var url = resourceUrl || 'qrc:/data/towers.json'
     try {
         var xhr = new XMLHttpRequest()
-        xhr.open('GET', url)
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                if (xhr.status === 0 || xhr.status === 200) {
-                    try {
-                        var data = JSON.parse(xhr.responseText)
-                        if (data && data.length) {
-                            towers = data.map(function(t){
-                                return { lat: t.latitude || t.lat, lon: t.longitude || t.lon, name: t.name || '' }
-                            })
-                            console.info('[TowerOptimize] Loaded towers:', towers.length)
-                        }
-                    } catch(e) { console.error('[TowerOptimize] parse error', e) }
-                } else {
-                    console.error('[TowerOptimize] load failed status', xhr.status)
-                }
-            }
-        }
+        xhr.open('GET', url, false)  // 同步加载！
         xhr.send()
+        
+        if (xhr.status === 0 || xhr.status === 200) {
+            try {
+                var data = JSON.parse(xhr.responseText)
+                if (data && data.length) {
+                    weatherSensors = []
+                    for (var i = 0; i < data.length; i++) {
+                        var item = data[i]
+                        if (item.type === 'sensor') {
+                            weatherSensors.push({
+                                lat: item.latitude || item.lat,
+                                lon: item.longitude || item.lon,
+                                name: item.name || '',
+                                radius: item.no_fly_radius || 600,
+                                direction: item.direction || 'up'
+                            })
+                        } else {
+                            towers.push({
+                                lat: item.latitude || item.lat,
+                                lon: item.longitude || item.lon,
+                                name: item.name || ''
+                            })
+                        }
+                    }
+                    console.info('[TowerOptimize] Loaded towers:', towers.length, 'sensors:', weatherSensors.length)
+                }
+            } catch(e) { 
+                console.error('[TowerOptimize] parse error', e) 
+            }
+        } else {
+            console.error('[TowerOptimize] load failed status', xhr.status)
+        }
     } catch(e) {
         console.error('[TowerOptimize] exception loading towers', e)
     }
@@ -108,6 +157,7 @@ function optimizeMissionLinear(missionController, planMasterController, ratio) {
     if (!missionController || !missionController.visualItems) return
     var visualItems = missionController.visualItems
     if (visualItems.count < 2) return
+    
     if (!towers.length) {
         console.warn('[TowerOptimize] No towers loaded, abort optimize')
         return
@@ -133,7 +183,7 @@ function optimizeMissionLinear(missionController, planMasterController, ratio) {
         if (best) {
             var newLat = c.latitude + (best.lat - c.latitude) * ratio
             var newLon = c.longitude + (best.lon - c.longitude) * ratio
-            var newCoord = QtPositioning.coordinate(newLat, newLon, c.altitude)
+            var newCoord = Pos.QtPositioning.coordinate(newLat, newLon, c.altitude)
             item.coordinate = newCoord
             if (item.dirty !== undefined) item.dirty = true
         }
@@ -162,6 +212,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     if (!missionController || !missionController.visualItems) return
     var visualItems = missionController.visualItems
     if (visualItems.count < 3) return
+    
     if (!towers.length) {
         console.warn('[TowerOptimize] No towers loaded, abort A* optimize')
         return
@@ -224,6 +275,79 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         var orig = item.coordinate
         var next = nextItem.coordinate
         if (!orig.isValid || !next.isValid) return
+        
+        // 尝试使用C++实现
+        if (pathOptManager) {
+            try {
+                console.info('[TowerOptimize] Using C++ A* for waypoint', index, 'from', orig.latitude.toFixed(6), orig.longitude.toFixed(6))
+                
+                // 获取prev坐标（如果存在）
+                var prev = (prevItem && prevItem.coordinate && prevItem.coordinate.isValid) 
+                    ? prevItem.coordinate 
+                    : Pos.QtPositioning.coordinate()  // 无效坐标
+                
+                // 调用C++ A*优化（传递正确的4个参数）
+                var optimized = pathOptManager.towerOptimizer.optimizeSingleWaypoint(
+                    orig, next, prev, orig.altitude
+                )
+                
+                // 应用优化结果
+                var newCoord = Pos.QtPositioning.coordinate(
+                    optimized.latitude, 
+                    optimized.longitude, 
+                    orig.altitude
+                )
+                
+                // 间距检查（保留JavaScript的检查逻辑）
+                var revert = false
+                var dNext = distanceMeters(newCoord.latitude, newCoord.longitude, next.latitude, next.longitude)
+                var origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+                
+                // 硬性约束：最小间距
+                if (dNext < minSeparation) {
+                    console.warn('[TowerOptimize] C++ result: too close to next', dNext.toFixed(2), 'm')
+                    revert = true
+                }
+                
+                // 软约束：保持原始间距的合理比例（60%-140%）
+                var distRatio = dNext / origDistToNext
+                if (distRatio < 0.6 || distRatio > 1.4) {
+                    console.warn('[TowerOptimize] C++ result: distance ratio', distRatio.toFixed(2), 'out of range')
+                    revert = true
+                }
+                
+                if (prevItem && prevItem.coordinate && prevItem.coordinate.isValid) {
+                    var prevC = prevItem.coordinate
+                    var dPrev = distanceMeters(newCoord.latitude, newCoord.longitude, prevC.latitude, prevC.longitude)
+                    var origDistToPrev = distanceMeters(orig.latitude, orig.longitude, prevC.latitude, prevC.longitude)
+                    
+                    if (dPrev < minSeparation) {
+                        console.warn('[TowerOptimize] C++ result: too close to prev', dPrev.toFixed(2), 'm')
+                        revert = true
+                    }
+                    
+                    var prevDistRatio = dPrev / origDistToPrev
+                    if (prevDistRatio < 0.6 || prevDistRatio > 1.4) {
+                        console.warn('[TowerOptimize] C++ result: prev distance ratio', prevDistRatio.toFixed(2), 'out of range')
+                        revert = true
+                    }
+                }
+                
+                if (!revert) {
+                    item.coordinate = newCoord
+                    if (item.dirty !== undefined) item.dirty = true
+                    console.info('[TowerOptimize] C++ A* applied for waypoint', index)
+                    return  // 成功，提前返回
+                } else {
+                    console.warn('[TowerOptimize] C++ result reverted due to spacing constraints')
+                }
+                
+            } catch(e) {
+                console.error('[TowerOptimize] C++ A* failed, falling back to JavaScript:', e.toString())
+            }
+        }
+        
+        // JavaScript实现（回退或C++不可用时）
         var lat0 = orig.latitude
         var lon0 = orig.longitude
         var cosLat = Math.cos(lat0 * Math.PI/180)
@@ -240,7 +364,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             finalPath: [],
             bestNode: null
         }
-        console.info('[TowerOptimize] Starting A* for waypoint', index, 'from', lat0.toFixed(6), lon0.toFixed(6))
+        console.info('[TowerOptimize] Using JavaScript A* for waypoint', index, 'from', lat0.toFixed(6), lon0.toFixed(6))
 
         function toCoord(gx, gy) { // grid offset in cells
             var dxMeters = gx * cellSize
@@ -447,7 +571,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         // Choose bestSoFar path end node.
         var target = bestSoFar
         var chosen = toCoord(target.gx, target.gy)
-        var newCoord = QtPositioning.coordinate(chosen.latitude, chosen.longitude, orig.altitude)
+        var newCoord = Pos.QtPositioning.coordinate(chosen.latitude, chosen.longitude, orig.altitude)
         
         // 记录最佳节点和最终路径
         debugTree.bestNode = {
@@ -596,6 +720,7 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
     if (!missionController || !missionController.visualItems) return
     var visualItems = missionController.visualItems
     if (visualItems.count < 3) return
+    
     if (!towers.length) {
         console.warn('[TowerOptimize] No towers loaded, abort RRT optimize')
         return
@@ -662,7 +787,79 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
         var orig = item.coordinate
         var next = nextItem.coordinate
         if (!orig.isValid || !next.isValid) return
-
+        
+        // 尝试使用C++实现
+        if (pathOptManager) {
+            try {
+                console.info('[TowerOptimize] Using C++ RRT for waypoint', index, 'from', orig.latitude.toFixed(6), orig.longitude.toFixed(6))
+                
+                // 获取prev坐标（如果存在）
+                var prev = (prevItem && prevItem.coordinate && prevItem.coordinate.isValid) 
+                    ? prevItem.coordinate 
+                    : Pos.QtPositioning.coordinate()  // 无效坐标
+                
+                // 调用C++ RRT优化（传递正确的4个参数）
+                var optimized = pathOptManager.towerOptimizer.optimizeSingleWaypointRRT(
+                    orig, next, prev, orig.altitude
+                )
+                
+                // 应用优化结果
+                var newCoord = Pos.QtPositioning.coordinate(
+                    optimized.latitude, 
+                    optimized.longitude, 
+                    orig.altitude
+                )
+                
+                // 间距检查（保留JavaScript的检查逻辑）
+                var revert = false
+                var dNext = distanceMeters(newCoord.latitude, newCoord.longitude, next.latitude, next.longitude)
+                var origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+                
+                // 硬性约束：最小间距
+                if (dNext < minSeparation) {
+                    console.warn('[TowerOptimize] C++ RRT result: too close to next', dNext.toFixed(2), 'm')
+                    revert = true
+                }
+                
+                // 软约束：保持原始间距的合理比例（60%-140%）
+                var distRatio = dNext / origDistToNext
+                if (distRatio < 0.6 || distRatio > 1.4) {
+                    console.warn('[TowerOptimize] C++ RRT result: distance ratio', distRatio.toFixed(2), 'out of range')
+                    revert = true
+                }
+                
+                if (prevItem && prevItem.coordinate && prevItem.coordinate.isValid) {
+                    var prevC = prevItem.coordinate
+                    var dPrev = distanceMeters(newCoord.latitude, newCoord.longitude, prevC.latitude, prevC.longitude)
+                    var origDistToPrev = distanceMeters(orig.latitude, orig.longitude, prevC.latitude, prevC.longitude)
+                    
+                    if (dPrev < minSeparation) {
+                        console.warn('[TowerOptimize] C++ RRT result: too close to prev', dPrev.toFixed(2), 'm')
+                        revert = true
+                    }
+                    
+                    var prevDistRatio = dPrev / origDistToPrev
+                    if (prevDistRatio < 0.6 || prevDistRatio > 1.4) {
+                        console.warn('[TowerOptimize] C++ RRT result: prev distance ratio', prevDistRatio.toFixed(2), 'out of range')
+                        revert = true
+                    }
+                }
+                
+                if (!revert) {
+                    item.coordinate = newCoord
+                    if (item.dirty !== undefined) item.dirty = true
+                    console.info('[TowerOptimize] C++ RRT applied for waypoint', index)
+                    return  // 成功，提前返回
+                } else {
+                    console.warn('[TowerOptimize] C++ RRT result reverted due to spacing constraints')
+                }
+                
+            } catch(e) {
+                console.error('[TowerOptimize] C++ RRT failed, falling back to JavaScript:', e.toString())
+            }
+        }
+        
+        // JavaScript实现（回退或C++不可用时）
         var lat0 = orig.latitude
         var lon0 = orig.longitude
         var metersPerDegLat = 111320.0
@@ -745,7 +942,7 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
         }
 
         var chosenLL = toLL(best.x, best.y)
-        var newCoord = QtPositioning.coordinate(chosenLL.latitude, chosenLL.longitude, orig.altitude)
+        var newCoord = Pos.QtPositioning.coordinate(chosenLL.latitude, chosenLL.longitude, orig.altitude)
 
         // 与前后点的最小间距保护
         var revert = false
@@ -815,4 +1012,78 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
     console.info('[TowerOptimize] optimizeMissionRRT applied')
 }
 
+// ============ 碰撞检测函数 ============
+
+// Haversine距离计算（米）
+function distanceMeters(lat1, lon1, lat2, lon2) {
+    var R = 6371000
+    var dLat = (lat2 - lat1) * Math.PI / 180
+    var dLon = (lon2 - lon1) * Math.PI / 180
+    var a = Math.sin(dLat/2) * Math.sin(dLat/2) + 
+            Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * 
+            Math.sin(dLon/2) * Math.sin(dLon/2)
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    return R * c
+}
+
+// 检查点是否在天气禁飞区内
+function checkWeatherCollision(lat, lon) {
+    if (!getConfig('collision', 'weatherCollisionCheck', true)) {
+        return false
+    }
+    
+    var bufferMeters = getConfig('collision', 'weatherBufferMeters', 50.0)
+    
+    for (var i = 0; i < weatherSensors.length; i++) {
+        var sensor = weatherSensors[i]
+        var dist = distanceMeters(lat, lon, sensor.lat, sensor.lon)
+        
+        // 检查是否在禁飞区半径+缓冲区内
+        if (dist < (sensor.radius + bufferMeters)) {
+            console.warn('[TowerOptimize] Weather collision:', sensor.name, 'dist:', dist.toFixed(2), 'm')
+            return true
+        }
+    }
+    return false
+}
+
+// 简化的地形碰撞检测（基于最小高度约束）
+// TODO: 实际应用中应该接入QGC的TerrainQuery
+function checkTerrainCollision(lat, lon, altitudeAMSL) {
+    if (!getConfig('collision', 'enableCollisionCheck', true)) {
+        return false
+    }
+    
+    var minAltitudeAGL = getConfig('collision', 'minAltitudeAGL', 30.0)
+    var terrainClearance = getConfig('collision', 'terrainClearance', 10.0)
+    
+    // 简化版本：假设地面高度为0（海平面）
+    // 实际使用时应该查询真实地形高度
+    var estimatedGroundLevel = 0  // TODO: 接入TerrainQuery
+    var agl = altitudeAMSL - estimatedGroundLevel
+    
+    if (agl < minAltitudeAGL + terrainClearance) {
+        console.warn('[TowerOptimize] Low clearance: AGL', agl.toFixed(2), 'm')
+        return true
+    }
+    
+    return false
+}
+
+// 通用碰撞检测
+function checkCollision(lat, lon, altitudeAMSL) {
+    // 检查天气禁飞区
+    if (checkWeatherCollision(lat, lon)) {
+        return true
+    }
+    
+    // 检查地形碰撞
+    if (altitudeAMSL !== undefined && checkTerrainCollision(lat, lon, altitudeAMSL)) {
+        return true
+    }
+    
+    return false
+}
+
+// ...existing code...
 // ...existing code...
