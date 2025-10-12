@@ -26,11 +26,13 @@ Item {
         
         onPaint: {
             if (!root.map || !towerModel || towerModel.count === 0) return
-            
             var ctx = getContext('2d')
-            ctx.clearRect(0, 0, width, height)
             
-            console.log('[WeatherNoFlyLayer] Painting', towerModel.count, 'zones')
+            // Reset and clear canvas completely
+            ctx.reset()
+            ctx.clearRect(0,0,width,height)
+            
+            console.log('[WeatherNoFlyLayer] Painting', towerModel.count, 'zones', 'canvas size:', width, 'x', height)
             
             // Draw only sensor no-fly zones (skip towers)
             for (var i = 0; i < towerModel.count; i++) {
@@ -69,7 +71,44 @@ Item {
                 ctx.arc(screenPos.x, screenPos.y, radiusPixels, 0, 2 * Math.PI)
                 ctx.stroke()
                 
-                console.log('[WeatherNoFlyLayer] Drew no-fly zone for sensor', tower.name, 'at', screenPos.x, screenPos.y, 'radius', radiusPixels, 'px')
+                // Draw text in center showing height and direction
+                var height = tower.height || 0
+                var direction = tower.direction || 'up'
+                var directionSymbol = (direction === 'up') ? '↑' : '↓'
+                var directionText = (direction === 'up') ? '向上禁飞' : '向下禁飞'
+                
+                // Background box for text
+                ctx.font = 'bold 20px Arial'
+                var line1 = directionSymbol + ' ' + directionText
+                var line2 = height + 'm'
+                var line1Width = ctx.measureText(line1).width
+                var line2Width = ctx.measureText(line2).width
+                var maxTextWidth = Math.max(line1Width, line2Width)
+                var textHeight = 50
+                var padding = 12
+                
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
+                ctx.fillRect(screenPos.x - maxTextWidth/2 - padding, 
+                            screenPos.y - textHeight/2, 
+                            maxTextWidth + padding*2, 
+                            textHeight)
+                
+                // Border for text box
+                ctx.strokeStyle = 'rgba(255, 0, 0, 1.0)'
+                ctx.lineWidth = 2
+                ctx.strokeRect(screenPos.x - maxTextWidth/2 - padding, 
+                              screenPos.y - textHeight/2, 
+                              maxTextWidth + padding*2, 
+                              textHeight)
+                
+                // Draw text lines
+                ctx.fillStyle = 'rgba(255, 0, 0, 1.0)'
+                ctx.textAlign = 'center'
+                ctx.textBaseline = 'middle'
+                ctx.fillText(line1, screenPos.x, screenPos.y - 10)
+                ctx.fillText(line2, screenPos.x, screenPos.y + 12)
+                
+                console.log('[WeatherNoFlyLayer] Drew no-fly zone for sensor', tower.name, 'at', screenPos.x, screenPos.y, 'radius', radiusPixels, 'px', 'height:', height, 'direction:', direction)
             }
         }
         
@@ -77,15 +116,7 @@ Item {
         onHeightChanged: requestPaint()
     }
     
-    // Update when map changes
-    Timer {
-        id: refreshTimer
-        interval: 500
-        repeat: true
-        running: root.visible
-        onTriggered: canvas.requestPaint()
-    }
-    
+    // Update when map changes - like SignalStrengthLayer
     Connections { 
         target: map
         function onCenterChanged() { canvas.requestPaint() }

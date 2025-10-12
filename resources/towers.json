@@ -1,7 +1,38 @@
 [
-  {"name": "Tower1", "latitude": 22.710291217916406, "longitude": 114.40399596630152, "type": "tower"},
-  {"name": "Tower2", "latitude": 22.711232863891194, "longitude": 114.40828193416829, "type": "tower"},
-  {"name": "Tower3", "latitude": 22.70719579378946,  "longitude": 114.40981129360846, "type": "tower"},
-  {"name": "Sensor1", "latitude": 22.70435612506964,  "longitude": 114.41050195330131, "type": "sensor", "weather_condition": "storm", "no_fly_radius": 800},
-  {"name": "Sensor2", "latitude": 22.713032863891194,  "longitude": 114.39909596630152, "type": "sensor", "weather_condition": "heavy_rain", "no_fly_radius": 600}
+  {
+    "name": "Tower1",
+    "latitude": 22.710291217916406,
+    "longitude": 114.40399596630152,
+    "type": "tower"
+  },
+  {
+    "name": "Tower2",
+    "latitude": 22.711232863891194,
+    "longitude": 114.40828193416829,
+    "type": "tower"
+  },
+  {
+    "name": "Tower3",
+    "latitude": 22.70719579378946,
+    "longitude": 114.40981129360846,
+    "type": "tower"
+  },
+  {
+    "name": "Sensor1",
+    "latitude": 22.70435612506964,
+    "longitude": 114.41050195330131,
+    "type": "sensor",
+    "direction": "under",
+    "height": 100,
+    "no_fly_radius": 800
+  },
+  {
+    "name": "Sensor2",
+    "latitude": 22.713032863891194,
+    "longitude": 114.39909596630152,
+    "type": "sensor",
+    "direction": "up",
+    "height": 100,
+    "no_fly_radius": 600
+  }
 ]

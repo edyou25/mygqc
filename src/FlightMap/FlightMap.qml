@@ -161,7 +161,9 @@ Map {
                                 latitude: arr[i].latitude, 
                                 longitude: arr[i].longitude,
                                 type: arr[i].type || (arr[i].name.indexOf('Sensor') !== -1 ? 'sensor' : 'tower'),
-                                no_fly_radius: arr[i].no_fly_radius || (arr[i].name.indexOf('Sensor') !== -1 ? 600 : 500)
+                                no_fly_radius: arr[i].no_fly_radius || (arr[i].name.indexOf('Sensor') !== -1 ? 600 : 500),
+                                height: arr[i].height || 100,
+                                direction: arr[i].direction || 'up'
                             })
                         }
                     } catch(e) {
