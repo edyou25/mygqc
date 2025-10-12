@@ -809,7 +809,6 @@ Item {
                         onTriggered: {
                             checked = !checked
                             if (checked) {
-                                editorMap.astarDebugLayer.active = true
                                 editorMap.astarDebugLayer.debugVisible = true
                                 editorMap.astarDebugLayer.refreshDebugData()
                             } else {

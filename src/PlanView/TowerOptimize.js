@@ -250,40 +250,104 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             return { latitude: lat0 + dLat, longitude: lon0 + dLon }
         }
 
-        function goalGridOffsets() { // approximate grid location of next waypoint (clamped to radius)
-            var dLatMeters = (next.latitude - lat0) * metersPerDegLat
-            var dLonMeters = (next.longitude - lon0) * metersPerDegLon
-            var gx = Math.round(dLonMeters / cellSize)
-            var gy = Math.round(dLatMeters / cellSize)
-            if (gx > radiusCells) gx = radiusCells; else if (gx < -radiusCells) gx = -radiusCells
-            if (gy > radiusCells) gy = radiusCells; else if (gy < -radiusCells) gy = -radiusCells
-            return { gx: gx, gy: gy }
+        // 【关键修正】目标不应该是next waypoint，而是原始位置的周围区域
+        // 目标是找到信号更好的点，同时保持waypoint之间的间距
+        function goalGridOffsets() {
+            // 不设置具体目标点，而是在整个搜索半径内寻找最优解
+            // 返回null表示没有明确目标，依靠代价函数引导搜索
+            return null
         }
 
         var goal = goalGridOffsets()
-        var goalKey = goal.gx + ',' + goal.gy
+        var goalKey = (goal !== null) ? (goal.gx + ',' + goal.gy) : null
         var open = {}
         var openArr = []
         var closed = {}
-        function pushNode(node) { open[node.key] = node; openArr.push(node) }
+        
+        // 优化的优先队列：使用最小堆而不是线性搜索
+        function pushNode(node) { 
+            open[node.key] = node
+            openArr.push(node)
+            // 上浮操作维护堆性质
+            var i = openArr.length - 1
+            while (i > 0) {
+                var parent = Math.floor((i - 1) / 2)
+                if (openArr[i].f >= openArr[parent].f) break
+                var temp = openArr[i]
+                openArr[i] = openArr[parent]
+                openArr[parent] = temp
+                i = parent
+            }
+        }
+        
         function popBest() {
-            var bestIndex = 0; var bestF = openArr[0].f
-            for (var i=1;i<openArr.length;i++) { if (openArr[i].f < bestF) { bestF = openArr[i].f; bestIndex=i } }
-            var n = openArr.splice(bestIndex,1)[0]
-            delete open[n.key]
-            return n
+            if (openArr.length === 0) return null
+            var best = openArr[0]
+            var last = openArr.pop()
+            delete open[best.key]
+            
+            if (openArr.length > 0) {
+                openArr[0] = last
+                // 下沉操作维护堆性质
+                var i = 0
+                while (true) {
+                    var left = 2 * i + 1
+                    var right = 2 * i + 2
+                    var smallest = i
+                    
+                    if (left < openArr.length && openArr[left].f < openArr[smallest].f) {
+                        smallest = left
+                    }
+                    if (right < openArr.length && openArr[right].f < openArr[smallest].f) {
+                        smallest = right
+                    }
+                    if (smallest === i) break
+                    
+                    var temp = openArr[i]
+                    openArr[i] = openArr[smallest]
+                    openArr[smallest] = temp
+                    i = smallest
+                }
+            }
+            return best
         }
+        // 添加缓存以避免重复计算
+        var signalCache = {}
+        var heuristicCache = {}
+        
         function heuristic(gx, gy) {
+            // 【修正】启发式函数：倾向于保持与前后waypoint的合理距离
+            // 而不是拉向next waypoint
+            var key = gx + ',' + gy
+            if (heuristicCache[key] !== undefined) return heuristicCache[key]
             var c = toCoord(gx, gy)
-            return distanceMeters(c.latitude, c.longitude, next.latitude, next.longitude)
+            
+            // 计算到next和prev的距离
+            var distToNext = distanceMeters(c.latitude, c.longitude, next.latitude, next.longitude)
+            
+            // 计算原始两点间距离
+            var origDist = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+            
+            // 惩罚过度偏离原始路径方向的点
+            // 理想情况：新点保持在原点到next的路径上，但可以左右偏移找信号
+            var result = Math.abs(distToNext - origDist) * 0.5  // 偏离路径的惩罚
+            
+            heuristicCache[key] = result
+            return result
         }
+        
         function deviationCost(gx, gy) {
-            var c = toCoord(gx, gy)
-            return distanceMeters(c.latitude, c.longitude, orig.latitude, orig.longitude)
+            // 使用快速欧几里得距离近似（网格空间）
+            return Math.sqrt(gx * gx + gy * gy) * cellSize
         }
+        
         function signalValue(gx, gy) {
+            var key = gx + ',' + gy
+            if (signalCache[key] !== undefined) return signalCache[key]
             var c = toCoord(gx, gy)
-            return signalStrength(c.latitude, c.longitude)
+            var result = signalStrength(c.latitude, c.longitude)
+            signalCache[key] = result
+            return result
         }
 
         var start = { gx:0, gy:0, g:0, dev:0, sig: signalValue(0,0), h: heuristic(0,0) }
@@ -312,11 +376,28 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                 isBest: false
             })
             
-            // Track best (lowest f) node that is closer to next
-            if (current.h < bestSoFar.h || (current.h === bestSoFar.h && current.f < bestSoFar.f)) {
+            // Track best (lowest total cost f) node
+            if (current.f < bestSoFar.f) {
                 bestSoFar = current
             }
-            if (current.key === goalKey) { bestSoFar = current; break }
+            
+            // 【修正】终止条件：找到足够好的解时提前退出
+            // 条件：信号强度显著提升 且 没有过度偏离原始位置
+            var origSig = signalValue(0, 0)
+            var sigImprovement = (origSig > 0) ? ((current.sig - origSig) / origSig) : 0
+            var maxSearchRadius = cellSize * radiusCells
+            
+            if (goalKey && current.key === goalKey) { 
+                bestSoFar = current
+                break 
+            }
+            
+            // 早期终止：信号提升超过20% 且 偏离原点不超过搜索半径的30%
+            if (sigImprovement > 0.2 && current.dev < maxSearchRadius * 0.3) {
+                console.info('[TowerOptimize] Early termination: signal improved by', (sigImprovement*100).toFixed(1), '% at iteration', iterations)
+                bestSoFar = current
+                break
+            }
             
             for (var d=0; d<neighborDirs.length; d++) {
                 var dx = neighborDirs[d][0]
@@ -395,19 +476,50 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                 break
             }
         }
-        // Separation checks
+        // 【加强】间距检查 - 防止waypoint聚集
         var revert = false
         var dNext = distanceMeters(newCoord.latitude, newCoord.longitude, next.latitude, next.longitude)
-        if (dNext < minSeparation) revert = true
-        if (dNext < safeSeparation) {
-            // Too close to next, likely to trigger merge elsewhere
+        var origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+        
+        // 硬性约束：最小间距
+        if (dNext < minSeparation) {
+            console.warn('[TowerOptimize] Revert: too close to next', dNext.toFixed(2), 'm < minSeparation', minSeparation)
             revert = true
         }
+        
+        // 软约束：保持原始间距的合理比例（60%-140%）
+        var distRatio = dNext / origDistToNext
+        if (distRatio < 0.6 || distRatio > 1.4) {
+            console.warn('[TowerOptimize] Revert: distance ratio', distRatio.toFixed(2), 'out of range [0.6, 1.4]')
+            revert = true
+        }
+        
+        // 安全间距检查
+        if (dNext < safeSeparation) {
+            console.warn('[TowerOptimize] Revert: too close to next', dNext.toFixed(2), 'm < safeSeparation', safeSeparation)
+            revert = true
+        }
+        
         if (prevItem && prevItem.coordinate && prevItem.coordinate.isValid) {
             var prevC = prevItem.coordinate
             var dPrev = distanceMeters(newCoord.latitude, newCoord.longitude, prevC.latitude, prevC.longitude)
-            if (dPrev < minSeparation) revert = true
-            if (dPrev < safeSeparation) revert = true
+            var origDistToPrev = distanceMeters(orig.latitude, orig.longitude, prevC.latitude, prevC.longitude)
+            
+            if (dPrev < minSeparation) {
+                console.warn('[TowerOptimize] Revert: too close to prev', dPrev.toFixed(2), 'm')
+                revert = true
+            }
+            if (dPrev < safeSeparation) {
+                console.warn('[TowerOptimize] Revert: too close to prev (safe)', dPrev.toFixed(2), 'm')
+                revert = true
+            }
+            
+            // 检查前后间距比例
+            var prevRatio = dPrev / origDistToPrev
+            if (prevRatio < 0.6 || prevRatio > 1.4) {
+                console.warn('[TowerOptimize] Revert: prev distance ratio', prevRatio.toFixed(2), 'out of range')
+                revert = true
+            }
         }
         if (!revert) {
             item.coordinate = newCoord

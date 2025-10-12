@@ -188,25 +188,25 @@ Map {
                 Image {
                     id: icon
                     source: type === 'sensor' ? '/res/QGCLogoFull' : '/res/QGCLogoArrow'
-                    width: type === 'sensor' ? 28 : 24
-                    height: type === 'sensor' ? 28 : 24
+                    width: type === 'sensor' ? 48 : 40
+                    height: type === 'sensor' ? 48 : 40
                     fillMode: Image.PreserveAspectFit
                 }
                 Rectangle {
-                    radius: 3
+                    radius: 5
                     color: type === 'sensor' ? Qt.rgba(1,0,0,0.8) : Qt.rgba(0,0,0,0.6)
-                    border.width: type === 'sensor' ? 1 : 0
+                    border.width: type === 'sensor' ? 2 : 0
                     border.color: type === 'sensor' ? 'white' : 'transparent'
                     anchors.horizontalCenter: parent.horizontalCenter
-                    property int hPad: 4
-                    property int vPad: 2
+                    property int hPad: 8
+                    property int vPad: 4
                     implicitWidth: label.implicitWidth + hPad * 2
                     implicitHeight: label.implicitHeight + vPad * 2
                     Text {
                         id: label
                         text: name
                         color: 'white'
-                        font.pixelSize: 12
+                        font.pixelSize: 18
                         font.bold: type === 'sensor'
                         anchors.centerIn: parent
                     }

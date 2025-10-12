@@ -58,55 +58,67 @@ Item {
                 var radiusScreenPos = root.map.fromCoordinate(radiusCoord, false)
                 var radiusPixels = Math.abs(radiusScreenPos.y - screenPos.y)
                 
-                // Draw filled circle with border for sensor
-                ctx.fillStyle = 'rgba(255, 0, 0, 0.35)'
-                ctx.beginPath()
-                ctx.arc(screenPos.x, screenPos.y, radiusPixels, 0, 2 * Math.PI)
-                ctx.fill()
-                
-                // Border
-                ctx.strokeStyle = 'rgba(255, 0, 0, 1.0)'
-                ctx.lineWidth = 3
-                ctx.beginPath()
-                ctx.arc(screenPos.x, screenPos.y, radiusPixels, 0, 2 * Math.PI)
-                ctx.stroke()
-                
-                // Draw text in center showing height and direction
+                // Get direction info first to determine colors
                 var height = tower.height || 0
                 var direction = tower.direction || 'up'
                 var directionSymbol = (direction === 'up') ? '↑' : '↓'
                 var directionText = (direction === 'up') ? '向上禁飞' : '向下禁飞'
                 
-                // Background box for text
-                ctx.font = 'bold 20px Arial'
+                // Color scheme for better visibility on satellite imagery
+                // Up (high altitude restriction): Orange/Amber - stands out against green vegetation
+                // Down (low altitude restriction): Purple/Magenta - contrasts with yellow terrain
+                var isUp = (direction === 'up')
+                var fillColor = isUp ? 'rgba(255, 140, 0, 0.35)' : 'rgba(138, 43, 226, 0.35)'  // Orange vs Purple
+                var borderColor = isUp ? 'rgba(255, 140, 0, 1.0)' : 'rgba(138, 43, 226, 1.0)'
+                var textColor = isUp ? 'rgba(255, 140, 0, 1.0)' : 'rgba(138, 43, 226, 1.0)'
+                
+                // Draw filled circle with border for sensor
+                ctx.fillStyle = fillColor
+                ctx.beginPath()
+                ctx.arc(screenPos.x, screenPos.y, radiusPixels, 0, 2 * Math.PI)
+                ctx.fill()
+                
+                // Border
+                ctx.strokeStyle = borderColor
+                ctx.lineWidth = 3
+                ctx.beginPath()
+                ctx.arc(screenPos.x, screenPos.y, radiusPixels, 0, 2 * Math.PI)
+                ctx.stroke()
+                
+                // Background box for text - use larger font size
+                var fontSize = 32
+                ctx.font = 'bold ' + fontSize + 'px Arial'
+                
                 var line1 = directionSymbol + ' ' + directionText
                 var line2 = height + 'm'
                 var line1Width = ctx.measureText(line1).width
                 var line2Width = ctx.measureText(line2).width
                 var maxTextWidth = Math.max(line1Width, line2Width)
-                var textHeight = 50
-                var padding = 12
+                var textHeight = 90
+                var padding = 20
                 
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
-                ctx.fillRect(screenPos.x - maxTextWidth/2 - padding, 
-                            screenPos.y - textHeight/2, 
-                            maxTextWidth + padding*2, 
-                            textHeight)
+                console.log('[WeatherNoFlyLayer] Font set to:', ctx.font, 'line1Width:', line1Width, 'line2Width:', line2Width)
                 
-                // Border for text box
-                ctx.strokeStyle = 'rgba(255, 0, 0, 1.0)'
-                ctx.lineWidth = 2
-                ctx.strokeRect(screenPos.x - maxTextWidth/2 - padding, 
-                              screenPos.y - textHeight/2, 
-                              maxTextWidth + padding*2, 
-                              textHeight)
-                
-                // Draw text lines
-                ctx.fillStyle = 'rgba(255, 0, 0, 1.0)'
+                // Draw text lines with white color for better visibility
+                ctx.save()
+                ctx.fillStyle = 'white'
                 ctx.textAlign = 'center'
                 ctx.textBaseline = 'middle'
-                ctx.fillText(line1, screenPos.x, screenPos.y - 10)
-                ctx.fillText(line2, screenPos.x, screenPos.y + 12)
+                ctx.font = 'bold 16px Arial'
+                
+                // Scale up the text by 2x
+                var scaleFactor = 2.0
+                ctx.scale(scaleFactor, scaleFactor)
+                
+                // Adjust coordinates for scaling - move text down by 0.5 radius
+                var scaledX = screenPos.x / scaleFactor
+                var textOffset = radiusPixels * 0.5
+                var scaledY1 = (screenPos.y + textOffset) / scaleFactor
+                var scaledY2 = (screenPos.y + textOffset + 35) / scaleFactor
+                
+                ctx.fillText(line1, scaledX, scaledY1)
+                ctx.fillText(line2, scaledX, scaledY2)
+                ctx.restore()
                 
                 console.log('[WeatherNoFlyLayer] Drew no-fly zone for sensor', tower.name, 'at', screenPos.x, screenPos.y, 'radius', radiusPixels, 'px', 'height:', height, 'direction:', direction)
             }
