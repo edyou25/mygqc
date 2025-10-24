@@ -9,6 +9,7 @@
 
 #include "FlightPathSegment.h"
 #include "QGC.h"
+#include "PathOptimizationManager.h"
 
 QGC_LOGGING_CATEGORY(FlightPathSegmentLog, "FlightPathSegmentLog")
 
@@ -29,6 +30,7 @@ FlightPathSegment::FlightPathSegment(SegmentType segmentType, const QGeoCoordina
     qCDebug(FlightPathSegmentLog) << this << "new" << coord1 << coord2 << amslCoord1Alt << amslCoord2Alt << _totalDistance;
 
     _sendTerrainPathQuery();
+    _updateWeatherCollision(); // 初始化时检查天气碰撞
 }
 
 void FlightPathSegment::setCoordinate1(const QGeoCoordinate &coordinate)
@@ -38,6 +40,7 @@ void FlightPathSegment::setCoordinate1(const QGeoCoordinate &coordinate)
         emit coordinate1Changed(_coord1);
         _delayedTerrainPathQueryTimer.start();
         _updateTotalDistance();
+        _updateWeatherCollision();
     }
 }
 
@@ -48,6 +51,7 @@ void FlightPathSegment::setCoordinate2(const QGeoCoordinate &coordinate)
         emit coordinate2Changed(_coord2);
         _delayedTerrainPathQueryTimer.start();
         _updateTotalDistance();
+        _updateWeatherCollision();
     }
 }
 
@@ -57,6 +61,7 @@ void FlightPathSegment::setCoord1AMSLAlt(double alt)
         _coord1AMSLAlt = alt;
         emit coord1AMSLAltChanged();
         _updateTerrainCollision();
+        _updateWeatherCollision();
     }
 }
 
@@ -66,6 +71,7 @@ void FlightPathSegment::setCoord2AMSLAlt(double alt)
         _coord2AMSLAlt = alt;
         emit coord2AMSLAltChanged();
         _updateTerrainCollision();
+        _updateWeatherCollision();
     }
 }
 
@@ -179,5 +185,73 @@ void FlightPathSegment::_updateTerrainCollision(void)
     if (newTerrainCollision != _terrainCollision) {
         _terrainCollision = newTerrainCollision;
         emit terrainCollisionChanged(_terrainCollision);
+        _updateHasCollision();
     }
+}
+
+void FlightPathSegment::_updateWeatherCollision(void)
+{
+    bool newWeatherCollision = false;
+    
+    qCDebug(FlightPathSegmentLog) << this << "_updateWeatherCollision called for path" << _coord1 << "to" << _coord2;
+    
+    // 检查路径是否穿越天气禁飞区
+    // 从PathOptimizationManager获取传感器数据
+    
+    if (_coord1.isValid() && _coord2.isValid()) {
+        // 获取TowerOptimizer实例
+        PathOptimizationManager* manager = PathOptimizationManager::instance();
+        if (manager) {
+            qCDebug(FlightPathSegmentLog) << this << "PathOptimizationManager found, checking weather collision";
+            
+            // 检查起点是否在禁飞区内
+            if (manager->towerOptimizer()->checkWeatherCollision(_coord1)) {
+                newWeatherCollision = true;
+                qCDebug(FlightPathSegmentLog) << this << "Weather collision at start point" << _coord1;
+            }
+            
+            // 检查终点是否在禁飞区内
+            if (!newWeatherCollision && manager->towerOptimizer()->checkWeatherCollision(_coord2)) {
+                newWeatherCollision = true;
+                qCDebug(FlightPathSegmentLog) << this << "Weather collision at end point" << _coord2;
+            }
+            
+            // 检查路径上的多个点（更密集的采样）
+            if (!newWeatherCollision && _totalDistance > 0) {
+                double azimuth = _coord1.azimuthTo(_coord2);
+                int numSamples = qMax(3, static_cast<int>(_totalDistance / 100.0)); // 每100米一个采样点
+                
+                qCDebug(FlightPathSegmentLog) << this << "Checking" << numSamples << "sample points along path";
+                
+                for (int i = 1; i < numSamples; i++) {
+                    double distance = (static_cast<double>(i) / numSamples) * _totalDistance;
+                    QGeoCoordinate samplePoint = _coord1.atDistanceAndAzimuth(distance, azimuth);
+                    if (manager->towerOptimizer()->checkWeatherCollision(samplePoint)) {
+                        newWeatherCollision = true;
+                        qCDebug(FlightPathSegmentLog) << this << "Weather collision at sample point" << samplePoint << "distance:" << distance;
+                        break;
+                    }
+                }
+            }
+        } else {
+            qCWarning(FlightPathSegmentLog) << "PathOptimizationManager not available for weather collision check";
+        }
+    } else {
+        qCDebug(FlightPathSegmentLog) << this << "Invalid coordinates for weather collision check";
+    }
+    
+    qCDebug(FlightPathSegmentLog) << this << "_updateWeatherCollision result: new=" << newWeatherCollision << "old=" << _weatherCollision;
+    
+    if (newWeatherCollision != _weatherCollision) {
+        _weatherCollision = newWeatherCollision;
+        emit weatherCollisionChanged(_weatherCollision);
+        _updateHasCollision();
+        qCDebug(FlightPathSegmentLog) << this << "Weather collision state changed to" << _weatherCollision;
+    }
+}
+
+void FlightPathSegment::_updateHasCollision(void)
+{
+    bool newHasCollision = _terrainCollision || _weatherCollision;
+    emit hasCollisionChanged(newHasCollision);
 }

@@ -172,6 +172,10 @@ private:
     // Cache for optimization
     QHash<QString, double> _signalCache;
     QHash<QString, double> _heuristicCache;
+    QHash<QString, double> _terrainCache;  // Cache for terrain heights
+    
+    // Terrain query interface (TODO: Add when TerrainQuery is available)
+    // TerrainQueryInterface* _terrainQuery;
     
     // Helper methods
     QGeoCoordinate _gridToCoord(int gx, int gy, const QGeoCoordinate& origin);
@@ -196,6 +200,10 @@ private:
                                         const QGeoCoordinate& next,
                                         const QGeoCoordinate& prev,
                                         double altitude);
+    
+    // Terrain helper methods
+    double _getCachedTerrainHeight(const QGeoCoordinate& coord);
+    double _estimateTerrainHeight(const QGeoCoordinate& coord);
     
     // RRT helper methods
     struct XYCoord { double x, y; };

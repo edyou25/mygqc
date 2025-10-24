@@ -44,6 +44,8 @@ public:
     Q_PROPERTY(double           finalDistanceBetween    MEMBER _finalDistanceBetween                            NOTIFY finalDistanceBetweenChanged)
     Q_PROPERTY(double           totalDistance           MEMBER _totalDistance                                   NOTIFY totalDistanceChanged)
     Q_PROPERTY(bool             terrainCollision        MEMBER _terrainCollision                                NOTIFY terrainCollisionChanged)
+    Q_PROPERTY(bool             weatherCollision        MEMBER _weatherCollision                                NOTIFY weatherCollisionChanged)
+    Q_PROPERTY(bool             hasCollision            READ hasCollision                                       NOTIFY hasCollisionChanged)
     Q_PROPERTY(SegmentType      segmentType             MEMBER _segmentType                                     CONSTANT)
 
     QGeoCoordinate      coordinate1         (void) const { return _coord1; }
@@ -56,6 +58,8 @@ public:
     double              totalDistance       (void) const { return _totalDistance; }
     bool                specialVisual       (void) const { return _specialVisual; }
     bool                terrainCollision    (void) const { return _terrainCollision; }
+    bool                weatherCollision    (void) const { return _weatherCollision; }
+    bool                hasCollision        (void) const { return _terrainCollision || _weatherCollision; }
     SegmentType         segmentType         (void) const { return _segmentType; }
 
     void setSpecialVisual(bool specialVisual);
@@ -77,12 +81,16 @@ signals:
     void finalDistanceBetweenChanged(double finalDistanceBetween);
     void totalDistanceChanged       (double totalDistance);
     void terrainCollisionChanged    (bool terrainCollision);
+    void weatherCollisionChanged    (bool weatherCollision);
+    void hasCollisionChanged        (bool hasCollision);
 
 private slots:
     void _sendTerrainPathQuery      (void);
     void _terrainDataReceived       (bool success, const TerrainPathQuery::PathHeightInfo_t& pathHeightInfo);
     void _updateTotalDistance       (void);
     void _updateTerrainCollision    (void);
+    void _updateWeatherCollision    (void);
+    void _updateHasCollision        (void);
 
 private:
     QGeoCoordinate      _coord1;
@@ -91,6 +99,7 @@ private:
     double              _coord2AMSLAlt =                qQNaN();
     bool                _queryTerrainData;
     bool                _terrainCollision =             false;
+    bool                _weatherCollision =             false;
     bool                _specialVisual =                false;
     QTimer              _delayedTerrainPathQueryTimer;
     TerrainPathQuery*   _currentTerrainPathQuery =      nullptr;

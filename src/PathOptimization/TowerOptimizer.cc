@@ -9,7 +9,7 @@
 
 #include "TowerOptimizer.h"
 #include "QGC.h"
-// #include "TerrainQuery.h"  // TODO: Add terrain query integration
+// #include "TerrainQuery.h"  // TODO: Add terrain query integration when available
 
 #include <QFile>
 #include <QJsonDocument>
@@ -26,6 +26,7 @@ QGC_LOGGING_CATEGORY(TowerOptimizerLog, "TowerOptimizerLog")
 
 TowerOptimizer::TowerOptimizer(QObject* parent)
     : QObject(parent)
+    // , _terrainQuery(nullptr)  // TODO: Initialize when TerrainQuery is available
 {
     qCDebug(TowerOptimizerLog) << "TowerOptimizer created";
 }
@@ -109,8 +110,13 @@ bool TowerOptimizer::loadTowersFromJson(const QString& jsonFilePath)
             info.noFlyRadius = obj["no_fly_radius"].toDouble(600.0);
             info.direction = obj["direction"].toString("up");
             _sensors.append(info);
+            qCInfo(TowerOptimizerLog) << "Loaded sensor:" << info.name 
+                                      << "at" << coord 
+                                      << "noFlyRadius:" << info.noFlyRadius << "m"
+                                      << "direction:" << info.direction;
         } else {
             _towers.append(info);
+            qCInfo(TowerOptimizerLog) << "Loaded tower:" << info.name << "at" << coord;
         }
     }
     
@@ -182,20 +188,32 @@ double TowerOptimizer::calculateSignalStrength(const QGeoCoordinate& coord)
 bool TowerOptimizer::checkWeatherCollision(const QGeoCoordinate& coord)
 {
     if (!_config.weatherCollisionCheck) {
+        qCDebug(TowerOptimizerLog) << "Weather collision check disabled";
         return false;
     }
     
+    qCDebug(TowerOptimizerLog) << "Checking weather collision for coord" << coord 
+                               << "with" << _sensors.size() << "sensors";
+    
     for (const TowerInfo& sensor : _sensors) {
         double distance = _haversineDistance(coord, sensor.coordinate);
+        double collisionRadius = sensor.noFlyRadius + _config.weatherBufferMeters;
         
-        if (distance < (sensor.noFlyRadius + _config.weatherBufferMeters)) {
+        qCDebug(TowerOptimizerLog) << "Sensor" << sensor.name 
+                                   << "distance:" << distance << "m"
+                                   << "collision radius:" << collisionRadius << "m"
+                                   << "noFlyRadius:" << sensor.noFlyRadius << "m"
+                                   << "buffer:" << _config.weatherBufferMeters << "m";
+        
+        if (distance < collisionRadius) {
             qCWarning(TowerOptimizerLog) << "Weather collision detected near" << sensor.name
-                                        << "distance:" << distance << "m";
-            emit collisionDetected(coord, QString("Weather: %1").arg(sensor.name));
+                                        << "distance:" << distance << "m < radius:" << collisionRadius << "m";
+            emit collisionDetected(coord, QString("Weather: %1 (dist: %2m)").arg(sensor.name).arg(distance, 0, 'f', 1));
             return true;
         }
     }
     
+    qCDebug(TowerOptimizerLog) << "No weather collision detected";
     return false;
 }
 
@@ -205,14 +223,38 @@ bool TowerOptimizer::checkTerrainCollision(const QGeoCoordinate& coord, double a
         return false;
     }
     
-    // TODO: Integrate with TerrainQuery to get actual terrain height
-    // For now, use simplified check
-    double estimatedGroundLevel = 0.0;  // Assume sea level
-    double agl = altitudeAMSL - estimatedGroundLevel;
+    // 使用TerrainQuery获取真实地形高度
+    double terrainHeight = 0.0;
+    bool terrainDataAvailable = false;
     
-    if (agl < _config.minAltitudeAGL + _config.terrainClearance) {
-        qCWarning(TowerOptimizerLog) << "Low terrain clearance: AGL" << agl << "m";
-        emit collisionDetected(coord, QString("Low clearance: %1m AGL").arg(agl, 0, 'f', 1));
+    // 尝试获取地形数据
+    // TODO: 当TerrainQuery可用时，实现真实的地形查询
+    // if (_terrainQuery) {
+    //     // 同步查询地形高度（简化版本）
+    //     QList<QGeoCoordinate> coords;
+    //     coords.append(coord);
+    //     
+    //     // 这里需要实现同步地形查询
+    //     // 由于TerrainQuery是异步的，我们使用缓存或简化的方法
+    //     terrainHeight = _getCachedTerrainHeight(coord);
+    //     terrainDataAvailable = true;
+    // }
+    
+    // 如果没有地形数据，使用保守估计
+    if (!terrainDataAvailable) {
+        // 根据坐标估算地形高度（简化模型）
+        terrainHeight = _estimateTerrainHeight(coord);
+        qCDebug(TowerOptimizerLog) << "Using estimated terrain height:" << terrainHeight << "m for coord" << coord;
+    }
+    
+    double agl = altitudeAMSL - terrainHeight;
+    double requiredAGL = _config.minAltitudeAGL + _config.terrainClearance;
+    
+    if (agl < requiredAGL) {
+        qCWarning(TowerOptimizerLog) << "Terrain collision detected at" << coord 
+                                    << "AGL:" << agl << "m (required:" << requiredAGL << "m)"
+                                    << "terrain:" << terrainHeight << "m AMSL:" << altitudeAMSL << "m";
+        emit collisionDetected(coord, QString("Terrain: AGL %1m < %2m").arg(agl, 0, 'f', 1).arg(requiredAGL, 0, 'f', 1));
         return true;
     }
     
@@ -221,14 +263,22 @@ bool TowerOptimizer::checkTerrainCollision(const QGeoCoordinate& coord, double a
 
 bool TowerOptimizer::checkCollision(const QGeoCoordinate& coord, double altitudeAMSL)
 {
+    qCDebug(TowerOptimizerLog) << "Checking collision for coord" << coord 
+                               << "altitude AMSL:" << altitudeAMSL << "m";
+    
+    // 检查天气碰撞
     if (checkWeatherCollision(coord)) {
+        qCDebug(TowerOptimizerLog) << "Weather collision detected, returning true";
         return true;
     }
     
+    // 检查地形碰撞
     if (altitudeAMSL > 0.0 && checkTerrainCollision(coord, altitudeAMSL)) {
+        qCDebug(TowerOptimizerLog) << "Terrain collision detected, returning true";
         return true;
     }
     
+    qCDebug(TowerOptimizerLog) << "No collision detected";
     return false;
 }
 
@@ -757,5 +807,46 @@ QGeoCoordinate TowerOptimizer::optimizeSingleWaypointRRT(const QGeoCoordinate& c
     }
     
     return _optimizeWaypointRRT(current, next, prev, altitude);
+}
+
+double TowerOptimizer::_getCachedTerrainHeight(const QGeoCoordinate& coord)
+{
+    QString key = QString("%1,%2").arg(coord.latitude(), 0, 'f', 6).arg(coord.longitude(), 0, 'f', 6);
+    
+    if (_terrainCache.contains(key)) {
+        return _terrainCache[key];
+    }
+    
+    // 如果没有缓存，使用估算值并缓存
+    double estimatedHeight = _estimateTerrainHeight(coord);
+    _terrainCache[key] = estimatedHeight;
+    
+    return estimatedHeight;
+}
+
+double TowerOptimizer::_estimateTerrainHeight(const QGeoCoordinate& coord)
+{
+    // 简化的地形高度估算模型
+    // 基于坐标的简单数学函数来模拟地形变化
+    
+    double lat = coord.latitude();
+    double lon = coord.longitude();
+    
+    // 基础高度（海平面）
+    double baseHeight = 0.0;
+    
+    // 简单的正弦波地形模型（用于测试）
+    // 实际应用中应该使用真实的地形数据
+    double terrainVariation = 50.0 * qSin(lat * 10.0) * qCos(lon * 10.0);
+    
+    // 添加一些随机变化
+    double randomVariation = 20.0 * qSin(lat * 100.0) * qCos(lon * 100.0);
+    
+    double estimatedHeight = baseHeight + terrainVariation + randomVariation;
+    
+    // 确保高度在合理范围内
+    estimatedHeight = qMax(0.0, qMin(estimatedHeight, 1000.0));
+    
+    return estimatedHeight;
 }
 

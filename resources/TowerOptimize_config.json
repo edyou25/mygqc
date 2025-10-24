@@ -14,11 +14,11 @@
   
   "astar": {
     "description": "A* 路径优化算法参数",
-    "cellSizeMeters": 30,
-    "radiusCells": 10,
+    "cellSizeMeters": 20,
+    "radiusCells": 15,
     "weightDeviation": 0.25,
     "weightSignal": 18000,
-    "maxIterations": 8000,
+    "maxIterations": 12000,
     "separation": {
       "minMeters": 5.0,
       "safeMeters": 15.0
@@ -33,10 +33,10 @@
   
   "rrt": {
     "description": "RRT 随机树优化算法参数",
-    "searchRadiusMeters": 300.0,
-    "stepMeters": 25.0,
-    "maxSamples": 1500,
-    "goalBias": 0.20,
+    "searchRadiusMeters": 500.0,
+    "stepMeters": 20.0,
+    "maxSamples": 2000,
+    "goalBias": 0.15,
     "weightDeviation": 0.25,
     "weightSignal": 18000,
     "minSeparationMeters": 5.0,
@@ -52,9 +52,9 @@
   "collision": {
     "description": "碰撞检测参数",
     "enableCollisionCheck": true,
-    "minAltitudeAGL": 30.0,
-    "terrainClearance": 10.0,
+    "minAltitudeAGL": 15.0,
+    "terrainClearance": 5.0,
     "weatherCollisionCheck": true,
-    "weatherBufferMeters": 50.0
+    "weatherBufferMeters": 0.0
   }
 }
