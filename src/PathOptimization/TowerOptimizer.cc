@@ -1091,8 +1091,8 @@ QVector<QGeoCoordinate> TowerOptimizer::_planPathAStarNew(const QGeoCoordinate& 
         // 生成候选点：主要方向 + 左右各2个方向
         QVector<double> directions;
         directions.append(goalDirection);  // 直接向目标
-        directions.append(goalDirection + 5.0);  // 右偏45度
-        directions.append(goalDirection - 5.0);  // 左偏45度
+        directions.append(goalDirection + 35.0);  // 右偏45度
+        directions.append(goalDirection - 35.0);  // 左偏45度
         // directions.append(goalDirection + 90.0);  // 右偏90度
         // directions.append(goalDirection - 90.0);  // 左偏90度
         
