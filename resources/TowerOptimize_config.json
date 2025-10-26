@@ -14,11 +14,11 @@
   
   "astar": {
     "description": "A* 路径优化算法参数",
-    "cellSizeMeters": 20,
-    "radiusCells": 15,
-    "weightDeviation": 0.25,
+    "cellSizeMeters": 15,
+    "radiusCells": 25,
+    "weightDeviation": 0.15,
     "weightSignal": 18000,
-    "maxIterations": 12000,
+    "maxIterations": 15000,
     "separation": {
       "minMeters": 5.0,
       "safeMeters": 15.0
@@ -49,11 +49,31 @@
     }
   },
   
+  "astar_new": {
+    "description": "A* 新算法 - 自适应步长避障路径规划",
+    "stepSizeMeters": 100.0,
+    "maxStepSizeMeters": 500.0,
+    "minStepSizeMeters": 50.0,
+    "searchRadiusMeters": 5000.0,
+    "maxWaypoints": 100,
+    "weightDeviation": 0.1,
+    "weightSignal": 18000,
+    "weightCollision": 10000.0,
+    "collisionBufferMeters": 150.0,
+    "maxIterations": 5000,
+    "signalModel": {
+      "attenExp": 1.2,
+      "baseDistance": 300.0,
+      "sigRadiusMeters": 12000.0,
+      "strengthMultiplier": 1.0
+    }
+  },
+  
   "collision": {
     "description": "碰撞检测参数",
-    "enableCollisionCheck": true,
-    "minAltitudeAGL": 15.0,
-    "terrainClearance": 5.0,
+    "enableCollisionCheck": false,
+    "minAltitudeAGL": 5.0,
+    "terrainClearance": 2.0,
     "weatherCollisionCheck": true,
     "weatherBufferMeters": 0.0
   }

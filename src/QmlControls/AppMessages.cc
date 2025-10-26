@@ -121,10 +121,11 @@ void AppLogModel::threadsafeLog(const QString message)
         _logFile.flush();
     }
 
-    // Additional project-root log file for TowerOptimize JS module
-    // Write messages containing the tag to a dedicated file under <projectRoot>/log/TowerOptimize.log
+    // Additional project-root log file for TowerOptimize module
+    // Write all TowerOptimize messages to yyyyMMdd_hhmmss.log with [JS] or [CP] tags
     static QFile s_towerOptimizeFile;
     static bool s_towerLogInitialized = false;
+    
     if (message.contains("[TowerOptimize]")) {
         if (!s_towerLogInitialized) {
             s_towerLogInitialized = true;
@@ -155,9 +156,9 @@ void AppLogModel::threadsafeLog(const QString message)
                 logDir.mkpath(".");
             }
             
-            // Set up TowerOptimize log file with timestamp
+            // Set up unified TowerOptimize log file with timestamp
             QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
-            const QString towerLogPath = logDir.filePath(QString("TowerOptimize_%1.log").arg(timestamp));
+            const QString towerLogPath = logDir.filePath(QString("%1.log").arg(timestamp));
             s_towerOptimizeFile.setFileName(towerLogPath);
             if (s_towerOptimizeFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
                 // Write header with timestamp when starting new log session
@@ -168,7 +169,12 @@ void AppLogModel::threadsafeLog(const QString message)
             }
         }
         
-        // Write TowerOptimize message to dedicated log file
+        // Determine if this is a JavaScript or C++ message
+        bool isJavaScript = message.contains("qrc:/qml/") || message.contains("TowerOptimize.js");
+        bool isCpp = message.contains("TowerOptimizer.cc") || message.contains("TowerOptimizerLog") || 
+                     (message.contains("[TowerOptimize]") && !message.contains("qrc:/qml/") && !message.contains("TowerOptimize.js"));
+        
+        // Write TowerOptimize message to unified log file
         if (s_towerOptimizeFile.isOpen()) {
             QTextStream towerStream(&s_towerOptimizeFile);
             
@@ -283,10 +289,16 @@ void AppLogModel::threadsafeLog(const QString message)
             cleanMessage = cleanMessage.replace("[TowerOptimize][RRT] ", "");
             cleanMessage = cleanMessage.replace("[TowerOptimize]", "");
             
-            // Format: timestamp [level] message - filepath:line
+            // Format: timestamp [level] [JS/CP] message - filepath:line
             towerStream << QDateTime::currentDateTime().toString("hh:mm:ss.zzz") << " ";
             if (!logLevel.isEmpty()) {
                 towerStream << "[" << logLevel << "] ";
+            }
+            // Add source identifier
+            if (isJavaScript) {
+                towerStream << "[JS] ";
+            } else if (isCpp) {
+                towerStream << "[CP] ";
             }
             towerStream << cleanMessage.trimmed();
             if (!filePath.isEmpty() && !lineNumber.isEmpty()) {
@@ -297,5 +309,6 @@ void AppLogModel::threadsafeLog(const QString message)
         }
     }
 }
+
 
 

@@ -63,6 +63,16 @@ struct OptimizationConfig {
     double stepMeters = 30.0;
     double goalBias = 0.3;
     
+    // A* New parameters
+    double stepSizeMeters = 100.0;
+    double maxStepSizeMeters = 500.0;
+    double minStepSizeMeters = 50.0;
+    double astarNewSearchRadiusMeters = 5000.0;
+    int maxWaypoints = 100;
+    double weightCollision = 10000.0;
+    double collisionBufferMeters = 150.0;
+    int astarNewMaxIterations = 5000;
+    
     // Signal model
     double attenuationExponent = 1.2;
     double baseDistanceMeters = 300.0;
@@ -100,6 +110,7 @@ public:
     // Note: Will need MissionController* once fully implemented
     Q_INVOKABLE bool optimizeMissionAStar();
     Q_INVOKABLE bool optimizeMissionRRT();
+    Q_INVOKABLE QVector<QGeoCoordinate> optimizePathAStarNew(const QVector<QGeoCoordinate>& originalPath, double altitude = 100.0);
     
     // Test methods for single waypoint optimization
     Q_INVOKABLE QGeoCoordinate optimizeSingleWaypoint(const QGeoCoordinate& current,
@@ -200,6 +211,12 @@ private:
                                         const QGeoCoordinate& next,
                                         const QGeoCoordinate& prev,
                                         double altitude);
+    
+    // A* New optimization - 50m fixed step path planning
+    QVector<QGeoCoordinate> _optimizePathAStarNew(const QVector<QGeoCoordinate>& originalPath,
+                                                  double altitude);
+    QVector<QGeoCoordinate> _planPathAStarNew(const QGeoCoordinate& start, const QGeoCoordinate& goal, 
+                                              double altitude, int maxSteps);
     
     // Terrain helper methods
     double _getCachedTerrainHeight(const QGeoCoordinate& coord);

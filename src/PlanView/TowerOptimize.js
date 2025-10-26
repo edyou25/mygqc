@@ -11,6 +11,11 @@ var debugSearchTrees = [] // 存储A*搜索树用于可视化
 var weatherSensors = []   // 存储天气传感器位置（禁飞区）
 var pathOptManager = null // C++ PathOptimizationManager 实例
 
+// JavaScript日志函数 - 统一通过C++处理
+function writeTowerOptimizeLog(message) {
+    console.log("[TowerOptimize]", message);
+}
+
 // 初始化C++后端
 function initCppBackend() {
     console.log('[TowerOptimize] Attempting to initialize C++ backend...')
@@ -1085,5 +1090,123 @@ function checkCollision(lat, lon, altitudeAMSL) {
     return false
 }
 
-// ...existing code...
-// ...existing code...
+// A* New optimization - 50m fixed step path planning
+function optimizeMissionAStarNew(missionController, planMasterController, options) {
+    if (!missionController || !missionController.visualItems) return
+    var visualItems = missionController.visualItems
+    if (visualItems.count < 3) return
+    
+    if (!towers.length) {
+        console.warn('[TowerOptimize] No towers loaded, abort A* New optimize')
+        return
+    }
+    
+    console.log('[TowerOptimize] ===== Starting A* New Optimization =====')
+    
+    // 获取所有有效的路径点
+    var waypoints = []
+    for (var i = 1; i < visualItems.count; i++) {
+        var item = visualItems.get(i)
+        if (item && item.coordinate && item.coordinate.isValid) {
+            waypoints.push({
+                index: i,
+                coordinate: item.coordinate,
+                item: item
+            })
+        }
+    }
+    
+    if (waypoints.length < 2) {
+        console.warn('[TowerOptimize] Not enough waypoints for A* New optimization')
+        return
+    }
+    
+    console.log('[TowerOptimize] Found', waypoints.length, 'waypoints for A* New optimization')
+    for (var i = 0; i < waypoints.length; i++) {
+        var wp = waypoints[i]
+        var coord = wp.coordinate
+        if (coord) {
+            console.log(
+                '[TowerOptimize] Waypoint', i,
+                'lat:', typeof coord.latitude === 'function' ? coord.latitude().toFixed(8) : coord.latitude,
+                'lon:', typeof coord.longitude === 'function' ? coord.longitude().toFixed(8) : coord.longitude,
+                'alt:', typeof coord.altitude === 'function' ? coord.altitude().toFixed(2) : coord.altitude
+            )
+        } else {
+            console.log('[TowerOptimize] Waypoint', i, 'invalid coordinate')
+        }
+    }
+    
+    // 使用C++ A* New算法
+    if (pathOptManager) {
+        try {
+            // 构建原始路径坐标数组
+            var originalPath = []
+            for (var j = 0; j < waypoints.length; j++) {
+                originalPath.push(waypoints[j].coordinate)
+            }
+            
+            // 获取有效高度
+            var avgAltitude = 0
+            var validAltitudes = 0
+            for (var k = 0; k < originalPath.length; k++) {
+                var alt = originalPath[k].altitude
+                if (!isNaN(alt) && alt > 0) {
+                    avgAltitude += alt
+                    validAltitudes++
+                }
+            }
+            if (validAltitudes > 0) {
+                avgAltitude = avgAltitude / validAltitudes
+            } else {
+                avgAltitude = 100.0 // 默认高度
+            }
+            
+            console.log('[TowerOptimize] Calling C++ A* New optimization with', originalPath.length, 'waypoints, altitude:', avgAltitude)
+            
+            // 调用C++ A* New算法
+            var optimizedPath = pathOptManager.towerOptimizer.optimizePathAStarNew(originalPath, avgAltitude)
+            
+            console.log('[TowerOptimize] C++ A* New returned', optimizedPath.length, 'optimized waypoints')
+            
+            if (optimizedPath.length > 0) {
+                // 应用优化结果 - 正确处理A* New生成的完整路径
+                console.log('[TowerOptimize] Applying A* New optimization results')
+                
+                // 更新所有路径点，确保数量匹配
+                var minLength = Math.min(waypoints.length, optimizedPath.length)
+                console.log('[TowerOptimize] Updating', minLength, 'waypoints from', optimizedPath.length, 'optimized points')
+                
+                for (var j = 0; j < minLength; j++) {
+                    var item = waypoints[j].item
+                    if (item && item.coordinate) {
+                        var newCoord = Pos.QtPositioning.coordinate(
+                            optimizedPath[j].latitude,
+                            optimizedPath[j].longitude,
+                            optimizedPath[j].altitude
+                        )
+                        item.coordinate = newCoord
+                        if (item.dirty !== undefined) item.dirty = true
+                        console.log('[TowerOptimize] Updated waypoint', j, 'to', optimizedPath[j].latitude.toFixed(6), optimizedPath[j].longitude.toFixed(6))
+                    }
+                }
+                
+                // 如果优化路径有更多点，但原始路径点不够，记录警告
+                if (optimizedPath.length > waypoints.length) {
+                    console.log('[TowerOptimize] Warning: Optimized path has', optimizedPath.length, 'points but only', waypoints.length, 'waypoints available')
+                }
+                
+                console.log('[TowerOptimize] A* New optimization completed successfully')
+            } else {
+                console.error('[TowerOptimize] C++ A* New returned empty path')
+            }
+            
+        } catch (error) {
+            console.error('[TowerOptimize] Error in C++ A* New optimization:', error)
+        }
+    } else {
+        console.error('[TowerOptimize] PathOptimizationManager not available for A* New optimization')
+    }
+    
+    console.log('[TowerOptimize] A* New optimization finished')
+}

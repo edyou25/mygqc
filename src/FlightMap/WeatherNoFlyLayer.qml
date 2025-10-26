@@ -116,8 +116,9 @@ Item {
                 var scaledY1 = (screenPos.y + textOffset) / scaleFactor
                 var scaledY2 = (screenPos.y + textOffset + 35) / scaleFactor
                 
-                ctx.fillText(line1, scaledX, scaledY1)
-                ctx.fillText(line2, scaledX, scaledY2)
+                // 绘制方向和高度信息
+                // ctx.fillText(line1, scaledX, scaledY1)
+                // ctx.fillText(line2, scaledX, scaledY2)
                 ctx.restore()
                 
                 console.log('[WeatherNoFlyLayer] Drew no-fly zone for sensor', tower.name, 'at', screenPos.x, screenPos.y, 'radius', radiusPixels, 'px', 'height:', height, 'direction:', direction)

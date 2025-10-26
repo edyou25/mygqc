@@ -1159,6 +1159,15 @@ Item {
                     dropPanel.hide()
                 }
             }
+            QGCButton {
+                text: qsTr("A* New")
+                Layout.fillWidth: true
+                enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
+                onClicked: {
+                    TowerOpt.optimizeMissionAStarNew(_missionController, _planMasterController, 0.2)
+                    dropPanel.hide()
+                }
+            }
         }
     }
 
