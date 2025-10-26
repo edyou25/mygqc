@@ -1176,6 +1176,7 @@ QVector<QGeoCoordinate> TowerOptimizer::_planPathAStarNew(const QGeoCoordinate& 
                               .arg(nodes[idx].coord.latitude(), 0, 'f', 8)
                               .arg(nodes[idx].coord.longitude(), 0, 'f', 8));
         }
+        path.append(goal);
         
         writeTowerOptimizeLog(QString("Path reconstruction completed. Final path length: %1").arg(path.size()));
     } else {

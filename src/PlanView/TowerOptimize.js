@@ -1166,16 +1166,18 @@ function optimizeMissionAStarNew(missionController, planMasterController, option
             
             // 调用C++ A* New算法
             var optimizedPath = pathOptManager.towerOptimizer.optimizePathAStarNew(originalPath, avgAltitude)
-            
+            // if (optimizedPath && optimizedPath.length > 0) {
+            //     optimizedPath.pop()
+            // }
             console.log('[TowerOptimize] C++ A* New returned', optimizedPath.length, 'optimized waypoints')
             
             if (optimizedPath.length > 0) {
                 // 应用优化结果 - 正确处理A* New生成的完整路径
                 console.log('[TowerOptimize] Applying A* New optimization results')
                 
-                // 更新所有路径点，确保数量匹配
+                // 更新现有路径点
                 var minLength = Math.min(waypoints.length, optimizedPath.length)
-                console.log('[TowerOptimize] Updating', minLength, 'waypoints from', optimizedPath.length, 'optimized points')
+                console.log('[TowerOptimize] Updating', minLength, 'existing waypoints from', optimizedPath.length, 'optimized points')
                 
                 for (var j = 0; j < minLength; j++) {
                     var item = waypoints[j].item
@@ -1191,9 +1193,22 @@ function optimizeMissionAStarNew(missionController, planMasterController, option
                     }
                 }
                 
-                // 如果优化路径有更多点，但原始路径点不够，记录警告
+                // 如果优化路径有更多点，添加新的路径点
                 if (optimizedPath.length > waypoints.length) {
-                    console.log('[TowerOptimize] Warning: Optimized path has', optimizedPath.length, 'points but only', waypoints.length, 'waypoints available')
+                    console.log('[TowerOptimize] Adding', optimizedPath.length - waypoints.length, 'new waypoints')
+                    
+                    for (var k = waypoints.length+1; k < optimizedPath.length; k++) {
+                        var newCoord = Pos.QtPositioning.coordinate(
+                            optimizedPath[k].latitude,
+                            optimizedPath[k].longitude,
+                            optimizedPath[k].altitude
+                        )
+                        
+                        // 在最后一个现有路径点之后插入新的路径点
+                        var insertIndex = waypoints.length + (k - waypoints.length)
+                        missionController.insertSimpleMissionItem(newCoord, insertIndex, false /* makeCurrentItem */)
+                        console.log('[TowerOptimize] Added new waypoint', k, 'at', optimizedPath[k].latitude.toFixed(6), optimizedPath[k].longitude.toFixed(6))
+                    }
                 }
                 
                 console.log('[TowerOptimize] A* New optimization completed successfully')

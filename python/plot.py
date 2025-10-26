@@ -93,15 +93,29 @@ def parse_log_file(log_path):
                         waypoint_data['alt'] = None
                     path_nodes.append(waypoint_data)
                 
-                # Extract old format path points (for backward compatibility)
-                old_waypoint_match = re.search(r'Updated waypoint \d+ to ([\d\.]+) ([\d\.]+)', line)
-                if old_waypoint_match:
-                    lat, lon = old_waypoint_match.groups()
+                # Extract updated waypoint information
+                # Format: "Updated waypoint 0 to 22.704364 114.382134"
+                updated_waypoint_match = re.search(r'Updated waypoint \d+ to ([\d\.]+) ([\d\.]+)', line)
+                if updated_waypoint_match:
+                    lat, lon = updated_waypoint_match.groups()
                     path_nodes.append({
                         'lat': float(lat),
                         'lon': float(lon),
                         'alt': None,
-                        'type': 'waypoint_old',
+                        'type': 'updated_waypoint',
+                        'line': line_num
+                    })
+                
+                # Extract added waypoint information
+                # Format: "Added new waypoint 3 at 22.706050 114.387445"
+                added_waypoint_match = re.search(r'Added new waypoint \d+ at ([\d\.]+) ([\d\.]+)', line)
+                if added_waypoint_match:
+                    lat, lon = added_waypoint_match.groups()
+                    path_nodes.append({
+                        'lat': float(lat),
+                        'lon': float(lon),
+                        'alt': None,
+                        'type': 'added_waypoint',
                         'line': line_num
                     })
 
@@ -160,20 +174,43 @@ def visualize_nodes(nodes, path_nodes, visual_path_nodes, log_path):
             candidate_lons = [n['lon'] for n in candidate_nodes]
             plt.scatter(candidate_lons, candidate_lats, c='lightblue', s=30, alpha=0.6, label=f'Candidate Nodes ({len(candidate_nodes)})')
     
-    # Plot path nodes (original formats)
+    # Plot path nodes (all formats)
     if path_nodes:
+        # Separate different types of waypoints
         new_waypoints = [n for n in path_nodes if n['type'] == 'waypoint']
+        updated_waypoints = [n for n in path_nodes if n['type'] == 'updated_waypoint']
+        added_waypoints = [n for n in path_nodes if n['type'] == 'added_waypoint']
         old_waypoints = [n for n in path_nodes if n['type'] == 'waypoint_old']
         
+        # Plot updated waypoints (existing waypoints that were modified)
+        if updated_waypoints:
+            updated_lats = [n['lat'] for n in updated_waypoints]
+            updated_lons = [n['lon'] for n in updated_waypoints]
+            plt.plot(updated_lons, updated_lats, 'red', linewidth=2, marker='o', markersize=20, label=f'Updated Waypoints ({len(updated_waypoints)})')
+            
+            # Mark start and end of updated waypoints
+            if len(updated_waypoints) >= 2:
+                plt.scatter(updated_lons[0], updated_lats[0], c='green', s=100, marker='s', label='Updated Start')
+                plt.scatter(updated_lons[-1], updated_lats[-1], c='red', s=100, marker='s', label='Updated End')
+        
+        # Plot added waypoints (new waypoints that were added)
+        if added_waypoints:
+            added_lats = [n['lat'] for n in added_waypoints]
+            added_lons = [n['lon'] for n in added_waypoints]
+            plt.plot(added_lons, added_lats, 'purple', linewidth=2, marker='^', markersize=20, label=f'Added Waypoints ({len(added_waypoints)})')
+            
+            # Mark start and end of added waypoints
+            if len(added_waypoints) >= 2:
+                plt.scatter(added_lons[0], added_lats[0], c='darkgreen', s=100, marker='^', label='Added Start')
+                plt.scatter(added_lons[-1], added_lats[-1], c='darkred', s=100, marker='^', label='Added End')
+        
+        # Plot new format waypoints (original format)
         if new_waypoints:
             new_lats = [n['lat'] for n in new_waypoints]
             new_lons = [n['lon'] for n in new_waypoints]
-            plt.plot(new_lons, new_lats, 'r-', linewidth=2, marker='o', markersize=8, label=f'Waypoints ({len(new_waypoints)})')
-            # Mark start and end points
-            if len(new_waypoints) >= 2:
-                plt.scatter(new_lons[0], new_lats[0], c='green', s=100, marker='s', label='Start Point')
-                plt.scatter(new_lons[-1], new_lats[-1], c='red', s=100, marker='s', label='End Point')
+            plt.plot(new_lons, new_lats, 'r-', linewidth=2, marker='o', markersize=8, label=f'Original Waypoints ({len(new_waypoints)})')
         
+        # Plot old format waypoints (backward compatibility)
         if old_waypoints:
             old_lats = [n['lat'] for n in old_waypoints]
             old_lons = [n['lon'] for n in old_waypoints]
@@ -205,10 +242,16 @@ def visualize_nodes(nodes, path_nodes, visual_path_nodes, log_path):
     print(f"\n=== Node Statistics ===")
     print(f"Current nodes: {len([n for n in nodes if n['type'] == 'current'])}")
     print(f"Candidate nodes: {len([n for n in nodes if n['type'] == 'candidate'])}")
+    
     # Separate waypoint statistics
     new_waypoints = [n for n in path_nodes if n['type'] == 'waypoint']
+    updated_waypoints = [n for n in path_nodes if n['type'] == 'updated_waypoint']
+    added_waypoints = [n for n in path_nodes if n['type'] == 'added_waypoint']
     old_waypoints = [n for n in path_nodes if n['type'] == 'waypoint_old']
-    print(f"New format waypoints: {len(new_waypoints)}")
+    
+    print(f"Original waypoints: {len(new_waypoints)}")
+    print(f"Updated waypoints: {len(updated_waypoints)}")
+    print(f"Added waypoints: {len(added_waypoints)}")
     print(f"Old format waypoints: {len(old_waypoints)}")
     print(f"Visualized path nodes: {len(visual_path_nodes)}")
     print(f"Total waypoints: {len(path_nodes)}")
@@ -219,12 +262,24 @@ def visualize_nodes(nodes, path_nodes, visual_path_nodes, log_path):
         print(f"\n=== Visualized Path Node Details ===")
         for i, n in enumerate(visual_path_nodes):
             print(f"Path node {i}: lat={n['lat']:.8f}, lon={n['lon']:.8f}")
-    # Show waypoint details if available
+    # Show updated waypoint details
+    if updated_waypoints:
+        print(f"\n=== Updated Waypoint Details ===")
+        for i, wp in enumerate(updated_waypoints):
+            print(f"Updated waypoint {i}: lat={wp['lat']:.8f}, lon={wp['lon']:.8f}")
+    
+    # Show added waypoint details
+    if added_waypoints:
+        print(f"\n=== Added Waypoint Details ===")
+        for i, wp in enumerate(added_waypoints):
+            print(f"Added waypoint {i}: lat={wp['lat']:.8f}, lon={wp['lon']:.8f}")
+    
+    # Show original waypoint details if available
     if new_waypoints:
-        print(f"\n=== Waypoint Details ===")
+        print(f"\n=== Original Waypoint Details ===")
         for i, wp in enumerate(new_waypoints):
             alt_str = f"{wp['alt']:.2f}" if wp['alt'] is not None else "NaN"
-            print(f"Waypoint {i}: lat={wp['lat']:.8f}, lon={wp['lon']:.8f}, alt={alt_str}")
+            print(f"Original waypoint {i}: lat={wp['lat']:.8f}, lon={wp['lon']:.8f}, alt={alt_str}")
     
     print("\nOpening interactive visualization window...")
     print("Close the window to continue.")
