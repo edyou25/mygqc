@@ -18,13 +18,25 @@
     "type": "tower"
   },
   {
+    "name": "Tower4",
+    "latitude": 22.708194,
+    "longitude": 114.403611,
+    "type": "tower"
+  },
+  {
+    "name": "Tower5",
+    "latitude": 22.705966, 
+    "longitude": 114.404591,
+    "type": "tower"
+  },
+  {
     "name": "Sensor1",
     "latitude": 22.70435612506964,
     "longitude": 114.41050195330131,
     "type": "sensor",
     "direction": "under",
     "height": 100,
-    "no_fly_radius": 800
+    "no_fly_radius": 100
   },
   {
     "name": "Sensor2",
@@ -33,6 +45,6 @@
     "type": "sensor",
     "direction": "up",
     "height": 100,
-    "no_fly_radius": 600
+    "no_fly_radius": 100
   }
 ]
