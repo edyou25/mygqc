@@ -275,11 +275,48 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         }
     }
 
+    // 计算航线平均间距，用于动态调整折扣阈值
+    var totalDistance = 0
+    var segmentCount = 0
+    for (var _di=0; _di<visualItems.count-1; _di++) {
+        var _curr = visualItems.get(_di)
+        var _next = visualItems.get(_di+1)
+        if (_curr && _next && _curr.coordinate && _next.coordinate && _curr.coordinate.isValid && _next.coordinate.isValid) {
+            totalDistance += distanceMeters(_curr.coordinate.latitude, _curr.coordinate.longitude,
+                                           _next.coordinate.latitude, _next.coordinate.longitude)
+            segmentCount++
+        }
+    }
+    var averageSegmentDistance = segmentCount > 0 ? totalDistance / segmentCount : 100
+    console.info('[TowerOptimize] Mission average segment distance:', averageSegmentDistance.toFixed(2), 'm')
+    // 使用平均间距的0.8倍作为动态阈值（比平均间距略小）
+    var dynamicDeviationThreshold = Math.max(averageSegmentDistance * 0.8, 50)
+    console.info('[TowerOptimize] Dynamic deviation threshold:', dynamicDeviationThreshold.toFixed(2), 'm')
 
     function adjustWaypoint(item, nextItem, prevItem, index) {
         var orig = item.coordinate
         var next = nextItem.coordinate
         if (!orig.isValid || !next.isValid) return
+        
+        // 计算原始距离用于调试
+        var origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+        console.log('[TowerOptimize] ========== Waypoint', index, '==========')
+        console.log('[TowerOptimize] Original coord:', orig.latitude.toFixed(6), orig.longitude.toFixed(6), 'alt:', orig.altitude.toFixed(2))
+        console.log('[TowerOptimize] Next coord:', next.latitude.toFixed(6), next.longitude.toFixed(6))
+        console.log('[TowerOptimize] Original distance to next:', origDistToNext.toFixed(2), 'm')
+        
+        // 保护机制：原始waypoint间距太小时，减少优化强度
+        if (origDistToNext < 60) {
+            console.warn('[TowerOptimize] Original distance', origDistToNext.toFixed(2), 'm < 60m, skipping optimization to avoid over-clustering')
+            return
+        }
+        
+        if (prevItem && prevItem.coordinate && prevItem.coordinate.isValid) {
+            var prevC = prevItem.coordinate
+            var origDistToPrev = distanceMeters(orig.latitude, orig.longitude, prevC.latitude, prevC.longitude)
+            console.log('[TowerOptimize] Prev coord:', prevC.latitude.toFixed(6), prevC.longitude.toFixed(6))
+            console.log('[TowerOptimize] Original distance to prev:', origDistToPrev.toFixed(2), 'm')
+        }
         
         // 尝试使用C++实现
         if (pathOptManager) {
@@ -303,10 +340,31 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                     orig.altitude
                 )
                 
+                console.log('[TowerOptimize] C++ optimized coord:', newCoord.latitude.toFixed(6), newCoord.longitude.toFixed(6))
+                
+                // 计算偏离原始位置的距离
+                var deviationFromOrig = distanceMeters(newCoord.latitude, newCoord.longitude, orig.latitude, orig.longitude)
+                console.log('[TowerOptimize] Deviation from original:', deviationFromOrig.toFixed(2), 'm')
+                
+                // 自适应折扣：使用动态阈值（基于航线平均间距），并采用平方衰减加大折扣力度
+                var maxDeviation = Math.max(dynamicDeviationThreshold, origDistToNext * 0.6)
+                if (deviationFromOrig > maxDeviation) {
+                    var discountLinear = maxDeviation / deviationFromOrig
+                    // var discount = discountLinear * discountLinear  // 平方衰减，加大折扣力度
+                    var discount = discountLinear
+                    console.warn('[TowerOptimize] Deviation', deviationFromOrig.toFixed(2), 'm exceeds', maxDeviation.toFixed(2), 'm, applying squared discount', discount.toFixed(3))
+                    
+                    // 按折扣缩减调整量：新位置 = 原位置 + (优化位置 - 原位置) * discount
+                    var adjustedLat = orig.latitude + (newCoord.latitude - orig.latitude) * discount
+                    var adjustedLon = orig.longitude + (newCoord.longitude - orig.longitude) * discount
+                    newCoord = Pos.QtPositioning.coordinate(adjustedLat, adjustedLon, orig.altitude)
+                    console.log('[TowerOptimize] Discounted coord:', newCoord.latitude.toFixed(6), newCoord.longitude.toFixed(6))
+                }
+                
                 // 间距检查（保留JavaScript的检查逻辑）
                 var revert = false
                 var dNext = distanceMeters(newCoord.latitude, newCoord.longitude, next.latitude, next.longitude)
-                var origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+                console.log('[TowerOptimize] New distance to next:', dNext.toFixed(2), 'm (was', origDistToNext.toFixed(2), 'm)')
                 
                 // 硬性约束：最小间距
                 if (dNext < minSeparation) {
@@ -314,10 +372,11 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                     revert = true
                 }
                 
-                // 软约束：保持原始间距的合理比例（60%-140%）
+                // 软约束：保持原始间距的合理比例（40%-250%）- 平衡信号优化与路径合理性
                 var distRatio = dNext / origDistToNext
-                if (distRatio < 0.6 || distRatio > 1.4) {
-                    console.warn('[TowerOptimize] C++ result: distance ratio', distRatio.toFixed(2), 'out of range')
+                console.log('[TowerOptimize] Distance ratio to next:', distRatio.toFixed(2), '(range: [0.4, 2.5])')
+                if (distRatio < 0.4 || distRatio > 2.5) {
+                    console.warn('[TowerOptimize] C++ result: distance ratio', distRatio.toFixed(2), 'out of range [0.4, 2.5]')
                     revert = true
                 }
                 
@@ -325,6 +384,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                     var prevC = prevItem.coordinate
                     var dPrev = distanceMeters(newCoord.latitude, newCoord.longitude, prevC.latitude, prevC.longitude)
                     var origDistToPrev = distanceMeters(orig.latitude, orig.longitude, prevC.latitude, prevC.longitude)
+                    console.log('[TowerOptimize] New distance to prev:', dPrev.toFixed(2), 'm (was', origDistToPrev.toFixed(2), 'm)')
                     
                     if (dPrev < minSeparation) {
                         console.warn('[TowerOptimize] C++ result: too close to prev', dPrev.toFixed(2), 'm')
@@ -332,16 +392,18 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                     }
                     
                     var prevDistRatio = dPrev / origDistToPrev
-                    if (prevDistRatio < 0.6 || prevDistRatio > 1.4) {
-                        console.warn('[TowerOptimize] C++ result: prev distance ratio', prevDistRatio.toFixed(2), 'out of range')
+                    console.log('[TowerOptimize] Distance ratio to prev:', prevDistRatio.toFixed(2), '(range: [0.4, 2.5])')
+                    if (prevDistRatio < 0.4 || prevDistRatio > 2.5) {
+                        console.warn('[TowerOptimize] C++ result: prev distance ratio', prevDistRatio.toFixed(2), 'out of range [0.4, 2.5]')
                         revert = true
                     }
                 }
                 
                 if (!revert) {
+                    console.log('[TowerOptimize] ✓ C++ A* optimization APPLIED for waypoint', index)
+                    console.log('[TowerOptimize] Final coord:', newCoord.latitude.toFixed(6), newCoord.longitude.toFixed(6))
                     item.coordinate = newCoord
                     if (item.dirty !== undefined) item.dirty = true
-                    console.info('[TowerOptimize] C++ A* applied for waypoint', index)
                     return  // 成功，提前返回
                 } else {
                     console.warn('[TowerOptimize] C++ result reverted due to spacing constraints')
@@ -608,7 +670,8 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         // 【加强】间距检查 - 防止waypoint聚集
         var revert = false
         var dNext = distanceMeters(newCoord.latitude, newCoord.longitude, next.latitude, next.longitude)
-        var origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+        console.log('[TowerOptimize] JS A* new coord:', newCoord.latitude.toFixed(6), newCoord.longitude.toFixed(6))
+        console.log('[TowerOptimize] JS A* new distance to next:', dNext.toFixed(2), 'm (was', origDistToNext.toFixed(2), 'm)')
         
         // 硬性约束：最小间距
         if (dNext < minSeparation) {
@@ -616,10 +679,11 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             revert = true
         }
         
-        // 软约束：保持原始间距的合理比例（60%-140%）
+        // 软约束：保持原始间距的合理比例（40%-250%）- 平衡信号优化与路径合理性
         var distRatio = dNext / origDistToNext
-        if (distRatio < 0.6 || distRatio > 1.4) {
-            console.warn('[TowerOptimize] Revert: distance ratio', distRatio.toFixed(2), 'out of range [0.6, 1.4]')
+        console.log('[TowerOptimize] JS A* distance ratio to next:', distRatio.toFixed(2), '(range: [0.4, 2.5])')
+        if (distRatio < 0.4 || distRatio > 2.5) {
+            console.warn('[TowerOptimize] Revert: distance ratio', distRatio.toFixed(2), 'out of range [0.4, 2.5]')
             revert = true
         }
         
@@ -633,6 +697,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             var prevC = prevItem.coordinate
             var dPrev = distanceMeters(newCoord.latitude, newCoord.longitude, prevC.latitude, prevC.longitude)
             var origDistToPrev = distanceMeters(orig.latitude, orig.longitude, prevC.latitude, prevC.longitude)
+            console.log('[TowerOptimize] JS A* new distance to prev:', dPrev.toFixed(2), 'm (was', origDistToPrev.toFixed(2), 'm)')
             
             if (dPrev < minSeparation) {
                 console.warn('[TowerOptimize] Revert: too close to prev', dPrev.toFixed(2), 'm')
@@ -645,12 +710,15 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             
             // 检查前后间距比例
             var prevRatio = dPrev / origDistToPrev
-            if (prevRatio < 0.6 || prevRatio > 1.4) {
-                console.warn('[TowerOptimize] Revert: prev distance ratio', prevRatio.toFixed(2), 'out of range')
+            console.log('[TowerOptimize] JS A* distance ratio to prev:', prevRatio.toFixed(2), '(range: [0.4, 2.5])')
+            if (prevRatio < 0.4 || prevRatio > 2.5) {
+                console.warn('[TowerOptimize] Revert: prev distance ratio', prevRatio.toFixed(2), 'out of range [0.4, 2.5]')
                 revert = true
             }
         }
         if (!revert) {
+            console.log('[TowerOptimize] ✓ JS A* optimization APPLIED for waypoint', index)
+            console.log('[TowerOptimize] Final coord:', newCoord.latitude.toFixed(6), newCoord.longitude.toFixed(6))
             item.coordinate = newCoord
             if (item.dirty !== undefined) item.dirty = true
             debugTree.applied = true
@@ -715,6 +783,44 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             }
         }
     }
+    
+    // 合并过近的waypoint（距离<80m），但跳过特殊点（launch、takeoff、land等）
+    var toRemove = []
+    for (var mi=1; mi<visualItems.count-1; mi++) {
+        var currItem = visualItems.get(mi)
+        var nextItem = visualItems.get(mi+1)
+        if (!currItem || !nextItem) continue
+        if (!currItem.coordinate || !nextItem.coordinate) continue
+        
+        // 跳过特殊waypoint类型
+        if (!currItem.specifiesCoordinate || currItem.isStandaloneCoordinate || 
+            !currItem.isSimpleItem || currItem.isTakeoffItem || currItem.isLandCommand) {
+            continue
+        }
+        if (!nextItem.specifiesCoordinate || nextItem.isStandaloneCoordinate || 
+            !nextItem.isSimpleItem || nextItem.isTakeoffItem || nextItem.isLandCommand) {
+            continue
+        }
+        
+        var dist = distanceMeters(currItem.coordinate.latitude, currItem.coordinate.longitude, 
+                                   nextItem.coordinate.latitude, nextItem.coordinate.longitude)
+        if (dist < 80) {
+            console.warn('[TowerOptimize] Waypoint', mi, 'to', mi+1, 'distance', dist.toFixed(2), 'm < 80m, marking for removal')
+            toRemove.push(mi)
+        }
+    }
+    
+    // 从后往前删除，避免索引错乱
+    for (var di=toRemove.length-1; di>=0; di--) {
+        var removeIdx = toRemove[di]
+        console.info('[TowerOptimize] Removing waypoint', removeIdx)
+        missionController.removeVisualItem(removeIdx)
+    }
+    
+    if (toRemove.length > 0) {
+        console.info('[TowerOptimize] Removed', toRemove.length, 'waypoints due to proximity')
+    }
+    
     if (planMasterController) planMasterController.dirty = true
     console.info('[TowerOptimize] optimizeMissionAStar A* applied')
 }
@@ -786,12 +892,49 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
         }
     }
 
+    // 计算航线平均间距，用于动态调整折扣阈值
+    var totalDistanceRRT = 0
+    var segmentCountRRT = 0
+    for (var _di=0; _di<visualItems.count-1; _di++) {
+        var _curr = visualItems.get(_di)
+        var _next = visualItems.get(_di+1)
+        if (_curr && _next && _curr.coordinate && _next.coordinate && _curr.coordinate.isValid && _next.coordinate.isValid) {
+            totalDistanceRRT += distanceMeters(_curr.coordinate.latitude, _curr.coordinate.longitude,
+                                           _next.coordinate.latitude, _next.coordinate.longitude)
+            segmentCountRRT++
+        }
+    }
+    var averageSegmentDistanceRRT = segmentCountRRT > 0 ? totalDistanceRRT / segmentCountRRT : 100
+    console.info('[TowerOptimize][RRT] Mission average segment distance:', averageSegmentDistanceRRT.toFixed(2), 'm')
+    var dynamicDeviationThresholdRRT = Math.max(averageSegmentDistanceRRT * 0.8, 50)
+    console.info('[TowerOptimize][RRT] Dynamic deviation threshold:', dynamicDeviationThresholdRRT.toFixed(2), 'm')
+
     function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v) }
 
     function adjustWaypointRRT(item, nextItem, prevItem, index) {
         var orig = item.coordinate
         var next = nextItem.coordinate
         if (!orig.isValid || !next.isValid) return
+        
+        // 计算原始距离用于调试
+        var origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+        console.log('[TowerOptimize] ========== RRT Waypoint', index, '==========')
+        console.log('[TowerOptimize] Original coord:', orig.latitude.toFixed(6), orig.longitude.toFixed(6), 'alt:', orig.altitude.toFixed(2))
+        console.log('[TowerOptimize] Next coord:', next.latitude.toFixed(6), next.longitude.toFixed(6))
+        console.log('[TowerOptimize] Original distance to next:', origDistToNext.toFixed(2), 'm')
+        
+        // 保护机制：原始waypoint间距太小时，减少优化强度
+        if (origDistToNext < 60) {
+            console.warn('[TowerOptimize] RRT: Original distance', origDistToNext.toFixed(2), 'm < 60m, skipping optimization to avoid over-clustering')
+            return
+        }
+        
+        if (prevItem && prevItem.coordinate && prevItem.coordinate.isValid) {
+            var prevC = prevItem.coordinate
+            var origDistToPrev = distanceMeters(orig.latitude, orig.longitude, prevC.latitude, prevC.longitude)
+            console.log('[TowerOptimize] Prev coord:', prevC.latitude.toFixed(6), prevC.longitude.toFixed(6))
+            console.log('[TowerOptimize] Original distance to prev:', origDistToPrev.toFixed(2), 'm')
+        }
         
         // 尝试使用C++实现
         if (pathOptManager) {
@@ -815,10 +958,31 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
                     orig.altitude
                 )
                 
+                console.log('[TowerOptimize] C++ RRT optimized coord:', newCoord.latitude.toFixed(6), newCoord.longitude.toFixed(6))
+                
+                // 计算偏离原始位置的距离
+                var deviationFromOrig = distanceMeters(newCoord.latitude, newCoord.longitude, orig.latitude, orig.longitude)
+                console.log('[TowerOptimize] RRT Deviation from original:', deviationFromOrig.toFixed(2), 'm')
+                
+                // 自适应折扣：使用动态阈值（基于航线平均间距），并采用平方衰减加大折扣力度
+                var maxDeviation = Math.max(dynamicDeviationThresholdRRT, origDistToNext * 0.6)
+                if (deviationFromOrig > maxDeviation) {
+                    var discountLinear = maxDeviation / deviationFromOrig
+                    // var discount = discountLinear * discountLinear  // 平方衰减，加大折扣力度
+                    var discount = discountLinear
+                    console.warn('[TowerOptimize] RRT Deviation', deviationFromOrig.toFixed(2), 'm exceeds', maxDeviation.toFixed(2), 'm, applying squared discount', discount.toFixed(3))
+                    
+                    // 按折扣缩减调整量
+                    var adjustedLat = orig.latitude + (newCoord.latitude - orig.latitude) * discount
+                    var adjustedLon = orig.longitude + (newCoord.longitude - orig.longitude) * discount
+                    newCoord = Pos.QtPositioning.coordinate(adjustedLat, adjustedLon, orig.altitude)
+                    console.log('[TowerOptimize] RRT Discounted coord:', newCoord.latitude.toFixed(6), newCoord.longitude.toFixed(6))
+                }
+                
                 // 间距检查（保留JavaScript的检查逻辑）
                 var revert = false
                 var dNext = distanceMeters(newCoord.latitude, newCoord.longitude, next.latitude, next.longitude)
-                var origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+                console.log('[TowerOptimize] RRT new distance to next:', dNext.toFixed(2), 'm (was', origDistToNext.toFixed(2), 'm)')
                 
                 // 硬性约束：最小间距
                 if (dNext < minSeparation) {
@@ -826,10 +990,11 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
                     revert = true
                 }
                 
-                // 软约束：保持原始间距的合理比例（60%-140%）
+                // 软约束：保持原始间距的合理比例（40%-250%）- 平衡信号优化与路径合理性
                 var distRatio = dNext / origDistToNext
-                if (distRatio < 0.6 || distRatio > 1.4) {
-                    console.warn('[TowerOptimize] C++ RRT result: distance ratio', distRatio.toFixed(2), 'out of range')
+                console.log('[TowerOptimize] RRT distance ratio to next:', distRatio.toFixed(2), '(range: [0.4, 2.5])')
+                if (distRatio < 0.4 || distRatio > 2.5) {
+                    console.warn('[TowerOptimize] C++ RRT result: distance ratio', distRatio.toFixed(2), 'out of range [0.4, 2.5]')
                     revert = true
                 }
                 
@@ -837,6 +1002,7 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
                     var prevC = prevItem.coordinate
                     var dPrev = distanceMeters(newCoord.latitude, newCoord.longitude, prevC.latitude, prevC.longitude)
                     var origDistToPrev = distanceMeters(orig.latitude, orig.longitude, prevC.latitude, prevC.longitude)
+                    console.log('[TowerOptimize] RRT new distance to prev:', dPrev.toFixed(2), 'm (was', origDistToPrev.toFixed(2), 'm)')
                     
                     if (dPrev < minSeparation) {
                         console.warn('[TowerOptimize] C++ RRT result: too close to prev', dPrev.toFixed(2), 'm')
@@ -844,16 +1010,18 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
                     }
                     
                     var prevDistRatio = dPrev / origDistToPrev
-                    if (prevDistRatio < 0.6 || prevDistRatio > 1.4) {
-                        console.warn('[TowerOptimize] C++ RRT result: prev distance ratio', prevDistRatio.toFixed(2), 'out of range')
+                    console.log('[TowerOptimize] RRT distance ratio to prev:', prevDistRatio.toFixed(2), '(range: [0.4, 2.5])')
+                    if (prevDistRatio < 0.4 || prevDistRatio > 2.5) {
+                        console.warn('[TowerOptimize] C++ RRT result: prev distance ratio', prevDistRatio.toFixed(2), 'out of range [0.4, 2.5]')
                         revert = true
                     }
                 }
                 
                 if (!revert) {
+                    console.log('[TowerOptimize] ✓ C++ RRT optimization APPLIED for waypoint', index)
+                    console.log('[TowerOptimize] Final coord:', newCoord.latitude.toFixed(6), newCoord.longitude.toFixed(6))
                     item.coordinate = newCoord
                     if (item.dirty !== undefined) item.dirty = true
-                    console.info('[TowerOptimize] C++ RRT applied for waypoint', index)
                     return  // 成功，提前返回
                 } else {
                     console.warn('[TowerOptimize] C++ RRT result reverted due to spacing constraints')
@@ -1011,6 +1179,43 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
                 }
             }
         }
+    }
+
+    // 合并过近的waypoint（距离<80m），但跳过特殊点（launch、takeoff、land等）
+    var toRemove = []
+    for (var mi=1; mi<visualItems.count-1; mi++) {
+        var currItem = visualItems.get(mi)
+        var nextItem = visualItems.get(mi+1)
+        if (!currItem || !nextItem) continue
+        if (!currItem.coordinate || !nextItem.coordinate) continue
+        
+        // 跳过特殊waypoint类型
+        if (!currItem.specifiesCoordinate || currItem.isStandaloneCoordinate || 
+            !currItem.isSimpleItem || currItem.isTakeoffItem || currItem.isLandCommand) {
+            continue
+        }
+        if (!nextItem.specifiesCoordinate || nextItem.isStandaloneCoordinate || 
+            !nextItem.isSimpleItem || nextItem.isTakeoffItem || nextItem.isLandCommand) {
+            continue
+        }
+        
+        var dist = distanceMeters(currItem.coordinate.latitude, currItem.coordinate.longitude, 
+                                   nextItem.coordinate.latitude, nextItem.coordinate.longitude)
+        if (dist < 80) {
+            console.warn('[TowerOptimize][RRT] Waypoint', mi, 'to', mi+1, 'distance', dist.toFixed(2), 'm < 80m, marking for removal')
+            toRemove.push(mi)
+        }
+    }
+    
+    // 从后往前删除，避免索引错乱
+    for (var di=toRemove.length-1; di>=0; di--) {
+        var removeIdx = toRemove[di]
+        console.info('[TowerOptimize][RRT] Removing waypoint', removeIdx)
+        missionController.removeVisualItem(removeIdx)
+    }
+    
+    if (toRemove.length > 0) {
+        console.info('[TowerOptimize][RRT] Removed', toRemove.length, 'waypoints due to proximity')
     }
 
     if (planMasterController) planMasterController.dirty = true

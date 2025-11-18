@@ -816,8 +816,9 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointRRT(const QGeoCoordinate& curren
         
         nodes.append(newNode);
         
-        // Update best node
-        if (h < best.h || (qAbs(h - best.h) < 1e-6 && f < best.f)) {
+        // Update best node - 优先考虑综合代价f（包含信号强度），而不是只看距离
+        // f = g + wDev*dev + h - wSig*sig，所以f越小越好（信号越强，f越小）
+        if (f < best.f) {
             best = newNode;
             bestIdx = nodes.size() - 1;
         }

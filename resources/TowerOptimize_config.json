@@ -16,8 +16,8 @@
     "description": "A* 路径优化算法参数",
     "cellSizeMeters": 15,
     "radiusCells": 25,
-    "weightDeviation": 0.15,
-    "weightSignal": 18000,
+    "weightDeviation": 0.5,
+    "weightSignal": 12000,
     "maxIterations": 15000,
     "separation": {
       "minMeters": 5.0,
@@ -34,11 +34,11 @@
   "rrt": {
     "description": "RRT 随机树优化算法参数",
     "searchRadiusMeters": 500.0,
-    "stepMeters": 20.0,
-    "maxSamples": 2000,
-    "goalBias": 0.15,
-    "weightDeviation": 0.25,
-    "weightSignal": 18000,
+    "stepMeters": 50.0,
+    "maxSamples": 3000,
+    "goalBias": 0.2,
+    "weightDeviation": 0.01,
+    "weightSignal": 25000,
     "minSeparationMeters": 5.0,
     "safeSeparationMeters": 15.0,
     "signalModel": {
