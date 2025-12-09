@@ -71,10 +71,10 @@
   
   "collision": {
     "description": "碰撞检测参数",
-    "enableCollisionCheck": false,
+    "enableCollisionCheck": true,
     "minAltitudeAGL": 5.0,
     "terrainClearance": 2.0,
     "weatherCollisionCheck": true,
-    "weatherBufferMeters": 0.0
+    "weatherBufferMeters": 50.0
   }
 }

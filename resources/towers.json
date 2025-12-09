@@ -31,8 +31,8 @@
   },
   {
     "name": "Sensor1",
-    "latitude": 22.70435612506964,
-    "longitude": 114.41050195330131,
+    "latitude": 22.7071198,
+    "longitude": 114.4041825,
     "type": "sensor",
     "direction": "under",
     "height": 100,

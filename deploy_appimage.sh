@@ -15,8 +15,9 @@ APPDIR="$TMP_DIR/AppDir-QGC"
 QT_DIR="/home/hw/Qt/5.15.2/gcc_64"
 LINUXDEPLOYQT="$TMP_DIR/linuxdeployqt.AppImage"
 
-# 输出文件名
-OUTPUT_NAME="QGroundControl-Fixed.AppImage"
+# 输出文件名（带时间戳）
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+OUTPUT_NAME="QGroundControl-${TIMESTAMP}.AppImage"
 
 # 颜色输出
 RED='\033[0;31m'

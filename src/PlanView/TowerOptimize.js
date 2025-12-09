@@ -293,6 +293,69 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     var dynamicDeviationThreshold = Math.max(averageSegmentDistance * 0.8, 50)
     console.info('[TowerOptimize] Dynamic deviation threshold:', dynamicDeviationThreshold.toFixed(2), 'm')
 
+    // 碰撞检测和移动函数
+    function checkAndMoveOutOfCollision(coord) {
+        console.log('[TowerOptimize] checkAndMoveOutOfCollision called for:', coord.latitude.toFixed(6), coord.longitude.toFixed(6))
+        
+        // 使用JavaScript本地的weatherSensors数据
+        if (!weatherSensors || weatherSensors.length === 0) {
+            console.warn('[TowerOptimize] No sensors available for collision check')
+            return coord
+        }
+        
+        console.log('[TowerOptimize] Checking collision with', weatherSensors.length, 'sensors')
+        
+        // 找到最近的碰撞sensor
+        var minDist = Infinity
+        var nearestSensor = null
+        
+        for (var i = 0; i < weatherSensors.length; i++) {
+            var sensor = weatherSensors[i]
+            var dist = distanceMeters(coord.latitude, coord.longitude, sensor.lat, sensor.lon)
+            // weatherSensors使用radius字段
+            var sensorRadius = sensor.radius || 100
+            var collisionRadius = sensorRadius + 50
+            
+            console.log('[TowerOptimize] Sensor', sensor.name, 'distance:', dist.toFixed(2), 'm, radius:', sensorRadius, 'm, threshold:', collisionRadius.toFixed(2), 'm')
+            
+            if (dist < collisionRadius && dist < minDist) {
+                minDist = dist
+                nearestSensor = sensor
+                nearestSensor.effectiveRadius = sensorRadius  // 保存实际使用的半径
+            }
+        }
+        
+        if (!nearestSensor) {
+            console.log('[TowerOptimize] No collision detected')
+            return coord  // 无碰撞
+        }
+        
+        console.warn('[TowerOptimize] Collision detected! Distance=' + minDist.toFixed(2) + 
+                     'm, threshold=' + (nearestSensor.effectiveRadius + 50).toFixed(2) + 'm')
+        
+        // 计算从sensor到当前点的方向
+        var latDiff = coord.latitude - nearestSensor.lat
+        var lonDiff = coord.longitude - nearestSensor.lon
+        var bearing = Math.atan2(latDiff, lonDiff)
+        
+        // 移动到安全距离
+        var safeDistance = nearestSensor.effectiveRadius + 60
+        var latOffset = (safeDistance / 111320) * Math.sin(bearing)
+        var lonOffset = (safeDistance / (111320 * Math.cos(coord.latitude * Math.PI / 180))) * Math.cos(bearing)
+        
+        var newCoord = Pos.QtPositioning.coordinate(
+            nearestSensor.lat + latOffset,
+            nearestSensor.lon + lonOffset,
+            coord.altitude
+        )
+        
+        var movedDist = distanceMeters(coord.latitude, coord.longitude, newCoord.latitude, newCoord.longitude)
+        console.warn('[TowerOptimize] Moved waypoint out of collision: sensor=' + nearestSensor.name + 
+                     ', was=' + minDist.toFixed(2) + 'm, now=' + safeDistance.toFixed(2) + 'm, moved=' + movedDist.toFixed(2) + 'm')
+        
+        return newCoord
+    }
+
     function adjustWaypoint(item, nextItem, prevItem, index) {
         var orig = item.coordinate
         var next = nextItem.coordinate
@@ -316,6 +379,21 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             var origDistToPrev = distanceMeters(orig.latitude, orig.longitude, prevC.latitude, prevC.longitude)
             console.log('[TowerOptimize] Prev coord:', prevC.latitude.toFixed(6), prevC.longitude.toFixed(6))
             console.log('[TowerOptimize] Original distance to prev:', origDistToPrev.toFixed(2), 'm')
+        }
+        
+        // *** 预处理：检测并移动碰撞点出禁飞区 ***
+        console.log('[TowerOptimize] Pre-check collision for waypoint', index, 'at', orig.latitude.toFixed(6), orig.longitude.toFixed(6))
+        console.log('[TowerOptimize] weatherSensors available:', weatherSensors ? weatherSensors.length : 0)
+        
+        var checkedCoord = checkAndMoveOutOfCollision(orig)
+        if (checkedCoord.latitude !== orig.latitude || checkedCoord.longitude !== orig.longitude) {
+            // 发生了移动
+            orig = checkedCoord
+            origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+            console.log('[TowerOptimize] After collision avoidance, new orig:', orig.latitude.toFixed(6), orig.longitude.toFixed(6))
+            console.log('[TowerOptimize] New distance to next:', origDistToNext.toFixed(2), 'm')
+        } else {
+            console.log('[TowerOptimize] No collision detected or no movement needed')
         }
         
         // 尝试使用C++实现
@@ -346,15 +424,13 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                 var deviationFromOrig = distanceMeters(newCoord.latitude, newCoord.longitude, orig.latitude, orig.longitude)
                 console.log('[TowerOptimize] Deviation from original:', deviationFromOrig.toFixed(2), 'm')
                 
-                // 自适应折扣：使用动态阈值（基于航线平均间距），并采用平方衰减加大折扣力度
+                // 自适应折扣：使用动态阈值
                 var maxDeviation = Math.max(dynamicDeviationThreshold, origDistToNext * 0.6)
                 if (deviationFromOrig > maxDeviation) {
                     var discountLinear = maxDeviation / deviationFromOrig
-                    // var discount = discountLinear * discountLinear  // 平方衰减，加大折扣力度
-                    var discount = discountLinear
+                    var discount = discountLinear * discountLinear  // 平方衰减
                     console.warn('[TowerOptimize] Deviation', deviationFromOrig.toFixed(2), 'm exceeds', maxDeviation.toFixed(2), 'm, applying squared discount', discount.toFixed(3))
                     
-                    // 按折扣缩减调整量：新位置 = 原位置 + (优化位置 - 原位置) * discount
                     var adjustedLat = orig.latitude + (newCoord.latitude - orig.latitude) * discount
                     var adjustedLon = orig.longitude + (newCoord.longitude - orig.longitude) * discount
                     newCoord = Pos.QtPositioning.coordinate(adjustedLat, adjustedLon, orig.altitude)
@@ -372,7 +448,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                     revert = true
                 }
                 
-                // 软约束：保持原始间距的合理比例（40%-250%）- 平衡信号优化与路径合理性
+                // 软约束：保持原始间距的合理比例（40%-250%）
                 var distRatio = dNext / origDistToNext
                 console.log('[TowerOptimize] Distance ratio to next:', distRatio.toFixed(2), '(range: [0.4, 2.5])')
                 if (distRatio < 0.4 || distRatio > 2.5) {
@@ -939,6 +1015,18 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
         // 尝试使用C++实现
         if (pathOptManager) {
             try {
+                // 优化前检查碰撞，如有碰撞则先移出禁飞区
+                var checkedCoord = checkAndMoveOutOfCollision(orig)
+                if (checkedCoord.latitude !== orig.latitude || checkedCoord.longitude !== orig.longitude) {
+                    var movedDist = distanceMeters(orig.latitude, orig.longitude, checkedCoord.latitude, checkedCoord.longitude)
+                    console.warn('[TowerOptimize] Moved waypoint', index, 'out of collision before RRT optimization, moved', movedDist.toFixed(2), 'm')
+                    console.log('[TowerOptimize] Was:', orig.latitude.toFixed(6), orig.longitude.toFixed(6))
+                    console.log('[TowerOptimize] Now:', checkedCoord.latitude.toFixed(6), checkedCoord.longitude.toFixed(6))
+                    orig = checkedCoord
+                    origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
+                    console.log('[TowerOptimize] Updated distance to next:', origDistToNext.toFixed(2), 'm')
+                }
+                
                 console.info('[TowerOptimize] Using C++ RRT for waypoint', index, 'from', orig.latitude.toFixed(6), orig.longitude.toFixed(6))
                 
                 // 获取prev坐标（如果存在）
@@ -964,15 +1052,13 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
                 var deviationFromOrig = distanceMeters(newCoord.latitude, newCoord.longitude, orig.latitude, orig.longitude)
                 console.log('[TowerOptimize] RRT Deviation from original:', deviationFromOrig.toFixed(2), 'm')
                 
-                // 自适应折扣：使用动态阈值（基于航线平均间距），并采用平方衰减加大折扣力度
+                // 自适应折扣：使用动态阈值
                 var maxDeviation = Math.max(dynamicDeviationThresholdRRT, origDistToNext * 0.6)
                 if (deviationFromOrig > maxDeviation) {
                     var discountLinear = maxDeviation / deviationFromOrig
-                    // var discount = discountLinear * discountLinear  // 平方衰减，加大折扣力度
-                    var discount = discountLinear
+                    var discount = discountLinear * discountLinear  // 平方衰减
                     console.warn('[TowerOptimize] RRT Deviation', deviationFromOrig.toFixed(2), 'm exceeds', maxDeviation.toFixed(2), 'm, applying squared discount', discount.toFixed(3))
                     
-                    // 按折扣缩减调整量
                     var adjustedLat = orig.latitude + (newCoord.latitude - orig.latitude) * discount
                     var adjustedLon = orig.longitude + (newCoord.longitude - orig.longitude) * discount
                     newCoord = Pos.QtPositioning.coordinate(adjustedLat, adjustedLon, orig.altitude)
@@ -990,7 +1076,7 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
                     revert = true
                 }
                 
-                // 软约束：保持原始间距的合理比例（40%-250%）- 平衡信号优化与路径合理性
+                // 软约束：保持原始间距的合理比例（40%-250%）
                 var distRatio = dNext / origDistToNext
                 console.log('[TowerOptimize] RRT distance ratio to next:', distRatio.toFixed(2), '(range: [0.4, 2.5])')
                 if (distRatio < 0.4 || distRatio > 2.5) {
