@@ -14,9 +14,9 @@ Item {
     // Removed invalid alias (previously 'property alias model: towerModel') which referenced no id.
     property var towerModel: null
     // Attenuation exponent (lower => slower decay). Previously 2.0; reduced to 1.2 for slower falloff.
-    property real attenExp: 1.2
+    property real attenExp: 2.5
     // Base distance scale (meters). Larger => even slower decay. Used to normalize distance.
-    property real baseDistance: 100
+    property real baseDistance: 80
     // Optional multiplier to globally raise/lower strength.
     property real strengthMultiplier: 1.0
     property real radiusMeters: 12000        // expanded influence radius per tower (was 8000)
@@ -56,6 +56,8 @@ Item {
                     var composite = 0
                     for (var ti=0; ti<towerModel.count; ti++) {
                         var tw = towerModel.get(ti)
+                        // Skip sensors - only towers emit signal
+                        if (tw.type === 'sensor') continue
                         var d = haversineMeters(coord.latitude, coord.longitude, tw.latitude, tw.longitude)
                         if (d < radiusMeters) {
                             // Normalize distance then apply slower attenuation
@@ -88,23 +90,54 @@ Item {
         }
 
         function colorRamp(t) { // t in [0,1]
-            // green (strong) -> yellow -> red (weak)
+            // Extreme contrast: signal drops off very rapidly away from towers
             var r,g,b
             var tt = Math.max(0, Math.min(1,t))
-            // invert so strong=green at t=1; we computed t=signalStrengthNormalized
-            var v = tt
-            // Use simple gradient: 0 -> red, 0.5 -> yellow, 1 -> green
-            if (v < 0.5) {
-                var f = v/0.5
-                r = 255
-                g = Math.round(255*f)
+            
+            // Super aggressive power curve - signal becomes red very quickly
+            // Only immediate vicinity of towers has good signal
+            var contrastPower = 5.5  // Higher = faster falloff, 100m becomes red
+            var v = Math.pow(tt, 1.0 / contrastPower)
+            
+            // Balanced gradient with clear distinction
+            // 0.0-0.4: Dark red -> Bright red (weak signal, far from towers)
+            // 0.4-0.55: Red -> Orange (transitional)
+            // 0.55-0.7: Orange -> Yellow (moderate)
+            // 0.7-0.85: Yellow -> Light Green (good signal)
+            // 0.85-1.0: Light Green -> Bright Green (excellent signal, near tower)
+            
+            if (v < 0.4) {
+                // Dark red to bright red (far from towers)
+                var f = v / 0.4
+                r = Math.round(120 + (255-120)*f)  // 120->255
+                g = 0
                 b = 0
-            } else {
-                var f2 = (v-0.5)/0.5
-                r = Math.round(255*(1-f2))
+            } else if (v < 0.55) {
+                // Red to orange
+                var f = (v - 0.4) / 0.15
+                r = 255
+                g = Math.round(90*f)  // 0->90
+                b = 0
+            } else if (v < 0.7) {
+                // Orange to yellow
+                var f = (v - 0.55) / 0.15
+                r = 255
+                g = Math.round(90 + 165*f)  // 90->255
+                b = 0
+            } else if (v < 0.85) {
+                // Yellow to light green
+                var f = (v - 0.7) / 0.15
+                r = Math.round(255 * (1-f))  // 255->0
                 g = 255
                 b = 0
+            } else {
+                // Light green to bright green (near towers)
+                var f = (v - 0.85) / 0.15
+                r = 0
+                g = Math.round(210 + 45*f)  // 210->255
+                b = Math.round(50*f)  // 0->50
             }
+            
             return 'rgba('+r+','+g+','+b+','+root.opacityFactor+')'
         }
 
