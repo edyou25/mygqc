@@ -75,6 +75,6 @@
     "minAltitudeAGL": 5.0,
     "terrainClearance": 2.0,
     "weatherCollisionCheck": true,
-    "weatherBufferMeters": 50.0
+    "weatherBufferMeters": 5.0
   }
 }

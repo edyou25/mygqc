@@ -314,7 +314,8 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             var dist = distanceMeters(coord.latitude, coord.longitude, sensor.lat, sensor.lon)
             // weatherSensors使用radius字段
             var sensorRadius = sensor.radius || 100
-            var collisionRadius = sensorRadius + 50
+            // 碰撞检测阈值：noFlyRadius + 5m buffer
+            var collisionRadius = sensorRadius + 5
             
             console.log('[TowerOptimize] Sensor', sensor.name, 'distance:', dist.toFixed(2), 'm, radius:', sensorRadius, 'm, threshold:', collisionRadius.toFixed(2), 'm')
             
@@ -331,15 +332,15 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         }
         
         console.warn('[TowerOptimize] Collision detected! Distance=' + minDist.toFixed(2) + 
-                     'm, threshold=' + (nearestSensor.effectiveRadius + 50).toFixed(2) + 'm')
+                     'm, threshold=' + (nearestSensor.effectiveRadius + 5).toFixed(2) + 'm')
         
         // 计算从sensor到当前点的方向
         var latDiff = coord.latitude - nearestSensor.lat
         var lonDiff = coord.longitude - nearestSensor.lon
         var bearing = Math.atan2(latDiff, lonDiff)
         
-        // 移动到安全距离
-        var safeDistance = nearestSensor.effectiveRadius + 60
+        // 移动到安全距离：noFlyRadius + 15m
+        var safeDistance = nearestSensor.effectiveRadius + 15  // 100 + 15 = 115m
         var latOffset = (safeDistance / 111320) * Math.sin(bearing)
         var lonOffset = (safeDistance / (111320 * Math.cos(coord.latitude * Math.PI / 180))) * Math.cos(bearing)
         
@@ -387,11 +388,16 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         
         var checkedCoord = checkAndMoveOutOfCollision(orig)
         if (checkedCoord.latitude !== orig.latitude || checkedCoord.longitude !== orig.longitude) {
-            // 发生了移动
+            // 发生了移动 - 立即更新item坐标
+            console.warn('[TowerOptimize] ⚠ Waypoint', index, 'moved out of collision zone')
             orig = checkedCoord
+            item.coordinate = checkedCoord  // 立即更新waypoint坐标
+            if (item.dirty !== undefined) item.dirty = true
+            item._collisionMoved = true  // 标记为避障移动，防止被合并删除
             origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
             console.log('[TowerOptimize] After collision avoidance, new orig:', orig.latitude.toFixed(6), orig.longitude.toFixed(6))
             console.log('[TowerOptimize] New distance to next:', origDistToNext.toFixed(2), 'm')
+            console.log('[TowerOptimize] Item coordinate updated to avoid collision, marked as collision-moved')
         } else {
             console.log('[TowerOptimize] No collision detected or no movement needed')
         }
@@ -878,6 +884,12 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             continue
         }
         
+        // 跳过避障移动过的waypoint - 这些点是为了安全必须保留的
+        if (currItem._collisionMoved || nextItem._collisionMoved) {
+            console.log('[TowerOptimize] Skipping merge check for waypoint', mi, '- collision-moved waypoint must be preserved')
+            continue
+        }
+        
         var dist = distanceMeters(currItem.coordinate.latitude, currItem.coordinate.longitude, 
                                    nextItem.coordinate.latitude, nextItem.coordinate.longitude)
         if (dist < 80) {
@@ -1019,12 +1031,15 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
                 var checkedCoord = checkAndMoveOutOfCollision(orig)
                 if (checkedCoord.latitude !== orig.latitude || checkedCoord.longitude !== orig.longitude) {
                     var movedDist = distanceMeters(orig.latitude, orig.longitude, checkedCoord.latitude, checkedCoord.longitude)
-                    console.warn('[TowerOptimize] Moved waypoint', index, 'out of collision before RRT optimization, moved', movedDist.toFixed(2), 'm')
+                    console.warn('[TowerOptimize] ⚠ RRT: Waypoint', index, 'moved out of collision zone, distance', movedDist.toFixed(2), 'm')
                     console.log('[TowerOptimize] Was:', orig.latitude.toFixed(6), orig.longitude.toFixed(6))
                     console.log('[TowerOptimize] Now:', checkedCoord.latitude.toFixed(6), checkedCoord.longitude.toFixed(6))
                     orig = checkedCoord
+                    item.coordinate = checkedCoord  // 立即更新waypoint坐标
+                    if (item.dirty !== undefined) item.dirty = true
                     origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
                     console.log('[TowerOptimize] Updated distance to next:', origDistToNext.toFixed(2), 'm')
+                    console.log('[TowerOptimize] Item coordinate updated to avoid collision')
                 }
                 
                 console.info('[TowerOptimize] Using C++ RRT for waypoint', index, 'from', orig.latitude.toFixed(6), orig.longitude.toFixed(6))
@@ -1328,7 +1343,7 @@ function checkWeatherCollision(lat, lon) {
         return false
     }
     
-    var bufferMeters = getConfig('collision', 'weatherBufferMeters', 50.0)
+    var bufferMeters = getConfig('collision', 'weatherBufferMeters', 5.0)
     
     for (var i = 0; i < weatherSensors.length; i++) {
         var sensor = weatherSensors[i]

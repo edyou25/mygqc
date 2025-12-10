@@ -88,7 +88,7 @@ struct OptimizationConfig {
     double minAltitudeAGL = 30.0;
     double terrainClearance = 10.0;
     bool weatherCollisionCheck = true;
-    double weatherBufferMeters = 50.0;
+    double weatherBufferMeters = 5.0;
     
     void loadFromJson(const QJsonObject& json);
 };
