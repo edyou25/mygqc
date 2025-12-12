@@ -909,6 +909,9 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         console.info('[TowerOptimize] Removed', toRemove.length, 'waypoints due to proximity')
     }
     
+    // 检查并修复路径段碰撞（在所有优化完成后执行）
+    checkAndFixPathSegments(missionController)
+    
     if (planMasterController) planMasterController.dirty = true
     console.info('[TowerOptimize] optimizeMissionAStar A* applied')
 }
@@ -1325,16 +1328,11 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
 
 // ============ 碰撞检测函数 ============
 
-// Haversine距离计算（米）
+// Haversine距离计算（米）- Replaced with QtPositioning for consistency
 function distanceMeters(lat1, lon1, lat2, lon2) {
-    var R = 6371000
-    var dLat = (lat2 - lat1) * Math.PI / 180
-    var dLon = (lon2 - lon1) * Math.PI / 180
-    var a = Math.sin(dLat/2) * Math.sin(dLat/2) + 
-            Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * 
-            Math.sin(dLon/2) * Math.sin(dLon/2)
-    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-    return R * c
+    var c1 = Pos.QtPositioning.coordinate(lat1, lon1)
+    var c2 = Pos.QtPositioning.coordinate(lat2, lon2)
+    return c1.distanceTo(c2)
 }
 
 // 检查点是否在天气禁飞区内
@@ -1530,4 +1528,279 @@ function optimizeMissionAStarNew(missionController, planMasterController, option
     }
     
     console.log('[TowerOptimize] A* New optimization finished')
+}
+// 检查并修复路径段碰撞
+function checkAndFixPathSegments(missionController) {
+    if (!getConfig('collision', 'weatherCollisionCheck', true)) return
+    
+    var visualItems = missionController.visualItems
+    var bufferMeters = getConfig('collision', 'weatherBufferMeters', 5.0)
+    var fixedCount = 0
+    
+    console.info('[TowerOptimize] Checking path segments for collision...')
+    
+    // 使用while循环，因为visualItems.count可能会变化
+    var i = 0
+    // 限制最大迭代次数防止死循环
+    var maxChecks = 1000
+    var checks = 0
+    
+    while (i < visualItems.count - 1 && checks < maxChecks) {
+        checks++
+        var item1 = visualItems.get(i)
+        
+        // If item1 is not spatial, skip it
+        if (!item1 || !item1.specifiesCoordinate) {
+            // console.log('[TowerOptimize] Skipping non-spatial item', i, item1 ? item1.commandName : 'null')
+            i++
+            continue
+        }
+
+        // Find next spatial item
+        var j = i + 1
+        var item2 = null
+        while (j < visualItems.count) {
+            var nextItem = visualItems.get(j)
+            if (nextItem && nextItem.specifiesCoordinate) {
+                item2 = nextItem
+                break
+            }
+            j++
+        }
+
+        // If no next spatial item, we are done
+        if (!item2) {
+            break
+        }
+        
+        var p1 = item1.coordinate
+        var p2 = item2.coordinate
+        
+        console.log('[TowerOptimize] Checking segment', i, '->', j, 'Coords:', p1.latitude.toFixed(6), p1.longitude.toFixed(6), '->', p2.latitude.toFixed(6), p2.longitude.toFixed(6))
+        
+        if (!p1.isValid || !p2.isValid) {
+            console.warn('[TowerOptimize] Invalid coordinates for segment', i, '->', j)
+            i = j // Move to next spatial item
+            continue
+        }
+        
+        // 检查段碰撞
+        var collision = findSegmentCollision(p1, p2, bufferMeters)
+        
+        if (collision) {
+            console.warn('[TowerOptimize] Segment collision detected between', i, 'and', j, 'Sensor:', collision.sensor.name)
+            
+            var sensor = collision.sensor
+            var sensorCoord = Pos.QtPositioning.coordinate(sensor.lat, sensor.lon)
+
+            // --- Move endpoints 15m away from sensor (ONCE) ---
+            // Move p1
+            var p1Coord = Pos.QtPositioning.coordinate(p1.latitude, p1.longitude)
+            var bearing1 = sensorCoord.azimuthTo(p1Coord)
+            var dist1 = sensorCoord.distanceTo(p1Coord)
+            var newP1 = sensorCoord.atDistanceAndAzimuth(dist1 + 15, bearing1)
+            newP1.altitude = p1.altitude
+            item1.coordinate = newP1
+            p1 = newP1 // Update local variable for midpoint calculation
+            if (item1.dirty !== undefined) item1.dirty = true
+            console.log('[TowerOptimize] Moved endpoint 1 (idx', i, ') 15m away from sensor to', newP1.latitude.toFixed(6), newP1.longitude.toFixed(6))
+
+            // Move p2
+            var p2Coord = Pos.QtPositioning.coordinate(p2.latitude, p2.longitude)
+            var bearing2 = sensorCoord.azimuthTo(p2Coord)
+            var dist2 = sensorCoord.distanceTo(p2Coord)
+            var newP2 = sensorCoord.atDistanceAndAzimuth(dist2 + 15, bearing2)
+            newP2.altitude = p2.altitude
+            item2.coordinate = newP2
+            p2 = newP2 // Update local variable
+            if (item2.dirty !== undefined) item2.dirty = true
+            console.log('[TowerOptimize] Moved endpoint 2 (idx', j, ') 15m away from sensor to', newP2.latitude.toFixed(6), newP2.longitude.toFixed(6))
+            // --------------------------------------------------
+            
+            // Strategy: Use midpoint of segment, push away from sensor center until safe
+            var midLat = (p1.latitude + p2.latitude) / 2
+            var midLon = (p1.longitude + p2.longitude) / 2
+            
+            // Use QtPositioning for accurate bearing and destination
+            // sensorCoord is already defined above
+            var midCoord = Pos.QtPositioning.coordinate(midLat, midLon)
+            var bearing = sensorCoord.azimuthTo(midCoord)
+            
+            if (isNaN(bearing)) {
+                bearing = 0
+            }
+
+            var safe = false
+            var attempts = 0
+            var maxAttempts = 10 // Limit to ~50m (10 * 5m)
+            var currentBuffer = bufferMeters
+            var avoidPoint = null
+            var sensorRadius = (sensor.radius || 100)
+            
+            // Calculate distances of endpoints to sensor center
+            var distP1 = distanceMeters(sensor.lat, sensor.lon, p1.latitude, p1.longitude)
+            var distP2 = distanceMeters(sensor.lat, sensor.lon, p2.latitude, p2.longitude)
+            var requiredClearance = sensorRadius + bufferMeters
+
+            while (!safe && attempts < maxAttempts) {
+                // Calculate candidate point
+                // Add 2.0m extra safety margin to ensure we are clearly outside the buffer
+                var pushDist = sensorRadius + currentBuffer + 2.0
+                
+                var candCoord = sensorCoord.atDistanceAndAzimuth(pushDist, bearing)
+                var candLat = candCoord.latitude
+                var candLon = candCoord.longitude
+                
+                // Check if this point resolves the collision
+                // We check if the new segments (p1->cand) and (cand->p2) are clear of the sensor
+                // The required clearance is sensorRadius + bufferMeters
+                // However, if p1 or p2 are already inside the clearance zone, we can't fix that here.
+                // So we accept the segment if it doesn't get *closer* than the endpoint (with a small tolerance).
+                
+                var d1 = distToSegment(sensor.lat, sensor.lon, p1.latitude, p1.longitude, candLat, candLon)
+                var d2 = distToSegment(sensor.lat, sensor.lon, candLat, candLon, p2.latitude, p2.longitude)
+                
+                var safe1 = d1 >= requiredClearance || (distP1 < requiredClearance && d1 >= distP1 - 0.1)
+                var safe2 = d2 >= requiredClearance || (distP2 < requiredClearance && d2 >= distP2 - 0.1)
+
+                if (safe1 && safe2) {
+                    safe = true
+                    avoidPoint = Pos.QtPositioning.coordinate(candLat, candLon, p1.altitude)
+                } else {
+                    currentBuffer += 5 // Increase push distance by 5m
+                    attempts++
+                }
+            }
+            
+            if (!safe || !avoidPoint) {
+                 console.warn('[TowerOptimize] Could not find completely safe point. Using last attempt.')
+                 // Fallback to last calculated point
+                 var pushDist = sensorRadius + currentBuffer + 2.0
+                 var candCoord = sensorCoord.atDistanceAndAzimuth(pushDist, bearing)
+                 avoidPoint = Pos.QtPositioning.coordinate(candCoord.latitude, candCoord.longitude, p1.altitude)
+            } else {
+                 console.info('[TowerOptimize] Found safe avoidance point after', attempts, 'attempts. Buffer:', currentBuffer)
+            }
+            
+            // 在j处插入新点 (before item2)
+            console.info('[TowerOptimize] Inserting avoidance waypoint at', avoidPoint.latitude.toFixed(6), avoidPoint.longitude.toFixed(6), 'index:', j)
+            var countBefore = visualItems.count
+            missionController.insertSimpleMissionItem(avoidPoint, j, false)
+            var countAfter = visualItems.count
+            console.info('[TowerOptimize] VisualItems count:', countBefore, '->', countAfter)
+            
+            // 标记为避障移动点
+            // Note: If insertion happened, the new item is at j.
+            // If insertion failed, j is still item2.
+            if (countAfter > countBefore) {
+                var newItem = visualItems.get(j)
+                if (newItem) {
+                    newItem._collisionMoved = true
+                    newItem.dirty = true
+                }
+            } else {
+                console.error('[TowerOptimize] Insertion failed!')
+            }
+            
+            fixedCount++
+            // Do not increment i, so we re-check the first half of the split segment (p1 -> new)
+            // The second half (new -> p2) will be checked in subsequent iterations
+            // Infinite loop protection is now handled by findSegmentCollision ignoring endpoint-only collisions
+        } else {
+            // No collision, move to next segment
+            i = j
+        }
+    }
+    
+    if (fixedCount > 0) {
+        console.info('[TowerOptimize] Fixed', fixedCount, 'segment collisions')
+    } else {
+        console.info('[TowerOptimize] No segment collisions found')
+    }
+}
+
+function findSegmentCollision(p1, p2, buffer) {
+    if (!weatherSensors) return null
+    
+    for (var j = 0; j < weatherSensors.length; j++) {
+        var sensor = weatherSensors[j]
+        var sensorRadius = (sensor.radius || 100)
+        var radius = sensorRadius + buffer
+        
+        // 检查传感器中心到线段的距离
+        var dist = distToSegment(sensor.lat, sensor.lon, p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+        
+        if (dist < radius) {
+            // Check if collision is just due to endpoints being inside
+            var d1 = distanceMeters(sensor.lat, sensor.lon, p1.latitude, p1.longitude)
+            var d2 = distanceMeters(sensor.lat, sensor.lon, p2.latitude, p2.longitude)
+            var minDistEndpoints = Math.min(d1, d2)
+            
+            // Only ignore if endpoints are inside the violation zone (radius includes buffer)
+            if (minDistEndpoints < radius) {
+                // If the segment distance is essentially the same as the endpoint distance,
+                // it means the segment doesn't go "deeper" into the zone than the endpoints.
+                // We can't fix endpoint violations by splitting, so we ignore them.
+                if (dist >= minDistEndpoints - 0.1) { // 0.1m tolerance for sampling error
+                    console.log('[TowerOptimize] Ignoring collision: segment inside buffer but not deeper than endpoints')
+                    continue
+                }
+            }
+
+            return { sensor: sensor, dist: dist }
+        }
+    }
+    return null
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+    // 使用采样法近似计算距离
+    var l2 = distanceMeters(x1, y1, x2, y2)
+    if (l2 < 1) return distanceMeters(px, py, x1, y1)
+    
+    // Increase sampling resolution to 5m to avoid missing grazing collisions
+    var steps = Math.max(10, Math.ceil(l2 / 5)) 
+    var minDist = Infinity
+    
+    for (var k = 0; k <= steps; k++) {
+        var t = k / steps
+        var lat = x1 + t * (x2 - x1)
+        var lon = y1 + t * (y2 - y1)
+        var d = distanceMeters(px, py, lat, lon)
+        if (d < minDist) minDist = d
+    }
+    return minDist
+}
+
+function calculateAvoidancePoint(p1, p2, sensor, buffer) {
+    // 找到线段上离传感器最近的点
+    var l2 = distanceMeters(p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+    var steps = Math.max(10, Math.ceil(l2 / 10))
+    var closestLat = p1.latitude
+    var closestLon = p1.longitude
+    var minDist = Infinity
+    
+    var sensorCoord = Pos.QtPositioning.coordinate(sensor.lat, sensor.lon)
+
+    for (var k = 0; k <= steps; k++) {
+        var t = k / steps
+        var lat = p1.latitude + t * (p2.latitude - p1.latitude)
+        var lon = p1.longitude + t * (p2.longitude - p1.longitude)
+        var d = distanceMeters(sensor.lat, sensor.lon, lat, lon)
+        if (d < minDist) {
+            minDist = d
+            closestLat = lat
+            closestLon = lon
+        }
+    }
+    
+    // 向外推
+    // 计算从传感器中心指向最近点的方位角
+    var closestCoord = Pos.QtPositioning.coordinate(closestLat, closestLon)
+    var bearing = sensorCoord.azimuthTo(closestCoord)
+    
+    // 安全距离：半径 + 缓冲 + 额外余量
+    var safeDist = (sensor.radius || 100) + buffer + 2.0 
+    
+    return sensorCoord.atDistanceAndAzimuth(safeDist, bearing)
 }
