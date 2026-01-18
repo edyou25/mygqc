@@ -340,10 +340,13 @@ function calculatePathMetrics(waypoints) {
         
         // 计算障碍物距离
         var obsDist = distanceToObstacle(lat, lon)
-        if (obsDist < metrics.obstacleMinDistance) {
-            metrics.obstacleMinDistance = obsDist
+        // 如果距离为负（点在障碍物内部），将其视为0（碰撞）
+        var effectiveDist = obsDist < 0 ? 0 : obsDist
+        if (effectiveDist < metrics.obstacleMinDistance) {
+            metrics.obstacleMinDistance = effectiveDist
         }
-        totalObstacleDist += obsDist
+        // 累加时也使用有效距离（碰撞时使用0）
+        totalObstacleDist += effectiveDist
         
         // 计算路径长度
         if (i > 0) {
@@ -414,9 +417,15 @@ function calculatePathMetrics(waypoints) {
         console.warn('[TowerOptimize] calculatePathMetrics: No valid points found!')
     }
     
+    // 处理障碍物最小距离：Infinity 或负数（碰撞）都设为 0
     if (metrics.obstacleMinDistance === Infinity) {
         metrics.obstacleMinDistance = 0
+    } else if (metrics.obstacleMinDistance < 0) {
+        // 如果有碰撞（距离为负），最小距离应该是0
+        metrics.obstacleMinDistance = 0
+        console.log('[TowerOptimize] Path has collision, setting obstacleMinDistance to 0')
     }
+    
     if (metrics.signalMin === Infinity) {
         metrics.signalMin = 0
     }
@@ -424,9 +433,13 @@ function calculatePathMetrics(waypoints) {
         metrics.signalMax = 0
     }
     
-    // 如果障碍物平均距离是Infinity，设置为0（表示没有障碍物）
+    // 如果障碍物平均距离是Infinity或负数，设置为0
     if (!isFinite(metrics.obstacleAvgDistance) || metrics.obstacleAvgDistance === Infinity) {
         metrics.obstacleAvgDistance = 0
+    } else if (metrics.obstacleAvgDistance < 0) {
+        // 如果平均距离为负，也设为0（表示有碰撞）
+        metrics.obstacleAvgDistance = 0
+        console.log('[TowerOptimize] Path has collision, setting obstacleAvgDistance to 0')
     }
     
     // 计算overscore分数（综合评分，值越大越好）
