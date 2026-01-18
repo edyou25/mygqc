@@ -19,7 +19,7 @@ import "./TowerOptimize.js" as TowerOpt
 Rectangle {
     id:                 comparisonPanel
     width:              400
-    height:             parent.height
+    height:             parent ? Math.max(0, parent.height) : 400  // 确保高度不为负
     color:              qgcPal.window
     border.color:       qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.1) : Qt.rgba(1,1,1,0.1)
     border.width:       2  // 增加边框宽度，更容易看到
@@ -29,18 +29,30 @@ Rectangle {
     property var comparisonData: ({ original: null, optimized: null })
     property var originalPathWaypoints: []  // 从外部传入的原始路径点
     
+    // 当 comparisonData 更新时，强制刷新 Repeater
+    onComparisonDataChanged: {
+        console.log('[TowerOptimize] comparisonData changed, original:', !!comparisonData.original, 'optimized:', !!comparisonData.optimized)
+        // 强制 Repeater 重新评估
+        if (contentColumn) {
+            // 触发 Repeater 重新创建 items
+            console.log('[TowerOptimize] Triggering Repeater refresh')
+        }
+    }
+    
     QGCPalette { id: qgcPal }
     
     Component.onCompleted: {
         console.log('[TowerOptimize] ===== PathComparisonPanel Component.onCompleted =====')
+        console.log('[TowerOptimize] PathComparisonPanel Rectangle created')
+        console.log('[TowerOptimize]   - width:', width, 'height:', height)
+        console.log('[TowerOptimize]   - parent:', !!parent, 'parent.height:', parent ? parent.height : 'no parent')
         console.log('[TowerOptimize]   - missionController:', !!missionController)
-        console.log('[TowerOptimize]   - Panel width:', width, 'height:', height)
         console.log('[TowerOptimize]   - Panel visible:', visible)
         console.log('[TowerOptimize]   - Panel color:', color)
-        console.log('[TowerOptimize]   - Panel parent:', !!parent)
         console.log('[TowerOptimize]   - Panel x:', x, 'y:', y)
         console.log('[TowerOptimize]   - comparisonData:', !!comparisonData)
         console.log('[TowerOptimize]   - qgcPal:', !!qgcPal)
+        console.log('[TowerOptimize]   - originalPathWaypoints length:', originalPathWaypoints ? originalPathWaypoints.length : 0)
         console.log('[TowerOptimize] ===== Component.onCompleted end =====')
         // 延迟刷新，确保所有组件都已初始化
         Qt.callLater(function() {
@@ -95,13 +107,24 @@ Rectangle {
             }
             updateChart()
             console.log('[TowerOptimize] Chart updated')
+            
+            // 强制触发 comparisonData 变化信号，确保 UI 更新
+            // 通过重新赋值来触发属性变化
+            var tempData = comparisonData
+            comparisonData = ({ original: null, optimized: null })
+            Qt.callLater(function() {
+                comparisonData = tempData
+                console.log('[TowerOptimize] comparisonData reassigned to trigger UI update')
+                console.log('[TowerOptimize]   - original after reassign:', !!comparisonData.original)
+                console.log('[TowerOptimize]   - optimized after reassign:', !!comparisonData.optimized)
+            })
         } else {
             console.warn('[TowerOptimize] No missionController available, cannot refresh')
         }
         console.log('[TowerOptimize] ===== PathComparisonPanel Refresh completed =====')
     }
     
-    Column {
+    ColumnLayout {
         id:                 mainColumn
         anchors.fill:       parent
         anchors.margins:    ScreenTools.defaultFontPixelWidth
@@ -113,28 +136,32 @@ Rectangle {
             text:               "Path Comparison"
             font.pointSize:     ScreenTools.defaultFontPointSize * 1.2
             font.bold:          true
+            Layout.fillWidth:   true
         }
         
         // Scrollable content
         ScrollView {
             id:             scrollView
-            width:          parent.width
-            height:         parent.height - header.height - refreshButton.height - parent.spacing * 3
+            Layout.fillWidth:   true
+            Layout.fillHeight:  true
             
             Component.onCompleted: {
-                console.log('[TowerOptimize] PathComparisonPanel ScrollView created')
+                console.log('[TowerOptimize] ScrollView created')
                 console.log('[TowerOptimize]   - width:', width, 'height:', height)
-                console.log('[TowerOptimize]   - header.height:', header.height)
-                console.log('[TowerOptimize]   - refreshButton.height:', refreshButton.height)
+                console.log('[TowerOptimize]   - Layout.fillWidth:', Layout.fillWidth)
+                console.log('[TowerOptimize]   - Layout.fillHeight:', Layout.fillHeight)
             }
             
             Column {
                 id:         contentColumn
-                width:      parent.width
+                width:      (scrollView.viewport ? scrollView.viewport.width : scrollView.width) || 400
                 spacing:    ScreenTools.defaultFontPixelHeight * 0.5
                 
                 Component.onCompleted: {
                     console.log('[TowerOptimize] PathComparisonPanel contentColumn created')
+                    console.log('[TowerOptimize]   - width:', width)
+                    console.log('[TowerOptimize]   - scrollView.width:', scrollView.width)
+                    console.log('[TowerOptimize]   - scrollView.viewport:', !!scrollView.viewport)
                 }
                 
                 // Metric comparison items
@@ -151,25 +178,30 @@ Rectangle {
                     ]
                     
                     delegate: Loader {
-                        width:          parent.width
-                        sourceComponent: metricItemComponent
+                        id:                 metricLoader
+                        width:              parent.width
+                        sourceComponent:    metricItemComponent
                         property string metricName:     modelData.name
                         property string metricKey:      modelData.key
                         property string unit:           modelData.unit
                         property string format:         modelData.format
-                        property real   originalValue:  {
-                            var val = comparisonPanel.comparisonData.original ? comparisonPanel.comparisonData.original[modelData.key] : 0
-                            if (index === 0) {
-                                console.log('[TowerOptimize] Metric', modelData.key, 'originalValue:', val, 'original data exists:', !!comparisonPanel.comparisonData.original)
+                        property real   originalValue:  comparisonPanel.comparisonData.original ? (comparisonPanel.comparisonData.original[modelData.key] || 0) : 0
+                        property real   optimizedValue: comparisonPanel.comparisonData.optimized ? (comparisonPanel.comparisonData.optimized[modelData.key] || 0) : 0
+                        
+                        // 监听 comparisonData 的变化并更新 item
+                        Connections {
+                            target: comparisonPanel
+                            function onComparisonDataChanged() {
+                                if (metricLoader.item) {
+                                    var newOriginal = comparisonPanel.comparisonData.original ? (comparisonPanel.comparisonData.original[modelData.key] || 0) : 0
+                                    var newOptimized = comparisonPanel.comparisonData.optimized ? (comparisonPanel.comparisonData.optimized[modelData.key] || 0) : 0
+                                    if (index === 0) {
+                                        console.log('[TowerOptimize] ComparisonData changed for', modelData.key, 'original:', newOriginal, 'optimized:', newOptimized)
+                                    }
+                                    metricLoader.item.originalValue = newOriginal
+                                    metricLoader.item.optimizedValue = newOptimized
+                                }
                             }
-                            return val
-                        }
-                        property real   optimizedValue: {
-                            var val = comparisonPanel.comparisonData.optimized ? comparisonPanel.comparisonData.optimized[modelData.key] : 0
-                            if (index === 0) {
-                                console.log('[TowerOptimize] Metric', modelData.key, 'optimizedValue:', val, 'optimized data exists:', !!comparisonPanel.comparisonData.optimized)
-                            }
-                            return val
                         }
                         
                         Component.onCompleted: {
@@ -177,6 +209,20 @@ Rectangle {
                                 console.log('[TowerOptimize] MetricItem Loader created for', modelData.name)
                                 console.log('[TowerOptimize]   - originalValue:', originalValue)
                                 console.log('[TowerOptimize]   - optimizedValue:', optimizedValue)
+                            }
+                        }
+                        
+                        onItemChanged: {
+                            if (item) {
+                                item.metricName = metricName
+                                item.metricKey = metricKey
+                                item.unit = unit
+                                item.format = format
+                                item.originalValue = originalValue
+                                item.optimizedValue = optimizedValue
+                                if (index === 0) {
+                                    console.log('[TowerOptimize] MetricItem Loader item set, originalValue:', originalValue, 'optimizedValue:', optimizedValue)
+                                }
                             }
                         }
                     }
@@ -244,7 +290,7 @@ Rectangle {
         QGCButton {
             id:                 refreshButton
             text:               "Refresh"
-            anchors.horizontalCenter: parent.horizontalCenter
+            Layout.alignment:   Qt.AlignHCenter
             
             Component.onCompleted: {
                 console.log('[TowerOptimize] PathComparisonPanel refreshButton created')
@@ -277,6 +323,14 @@ Rectangle {
             height:         ScreenTools.defaultFontPixelHeight * 4
             width:          parent.width
             
+            // 当值变化时，强制更新显示
+            onOriginalValueChanged: {
+                console.log('[TowerOptimize] MetricItemComponent originalValue changed for', metricName, 'to', originalValue)
+            }
+            onOptimizedValueChanged: {
+                console.log('[TowerOptimize] MetricItemComponent optimizedValue changed for', metricName, 'to', optimizedValue)
+            }
+            
             Component.onCompleted: {
                 console.log('[TowerOptimize] MetricItemComponent created for', metricName)
                 console.log('[TowerOptimize]   - originalValue:', originalValue)
@@ -307,31 +361,55 @@ Rectangle {
                     
                     // Original value bar
                     Rectangle {
-                        width:          (parent.width - parent.spacing) * 0.5
-                        height:         ScreenTools.defaultFontPixelHeight * 1.5
-                        color:          "#959b59"
-                        radius:         2
+                        id:                 originalBar
+                        width:              Math.max(50, (parent.width - parent.spacing) * 0.5)
+                        height:             Math.max(20, ScreenTools.defaultFontPixelHeight * 1.5)
+                        color:              "#959b59"
+                        radius:             2
+                        border.width:       1
+                        border.color:       "#666666"
+                        
+                        Component.onCompleted: {
+                            console.log('[TowerOptimize] Original bar created for', metricName, 'value:', originalValue, 'width:', width, 'height:', height)
+                        }
                         
                         QGCLabel {
                             anchors.centerIn:   parent
-                            text:               originalValue.toFixed(format === "f0" ? 0 : (format === "f1" ? 1 : 2)) + (unit ? " " + unit : "")
+                            text:               {
+                                var val = originalValue
+                                var decimals = format === "f0" ? 0 : (format === "f1" ? 1 : 2)
+                                return val.toFixed(decimals) + (unit ? " " + unit : "")
+                            }
                             color:              "white"
                             font.pointSize:     ScreenTools.defaultFontPointSize * 0.8
+                            font.bold:          true
                         }
                     }
                     
                     // Optimized value bar
                     Rectangle {
-                        width:          (parent.width - parent.spacing) * 0.5
-                        height:         ScreenTools.defaultFontPixelHeight * 1.5
-                        color:          QGroundControl.globalPalette.mapMissionTrajectory
-                        radius:         2
+                        id:                 optimizedBar
+                        width:              Math.max(50, (parent.width - parent.spacing) * 0.5)
+                        height:             Math.max(20, ScreenTools.defaultFontPixelHeight * 1.5)
+                        color:              QGroundControl.globalPalette.mapMissionTrajectory
+                        radius:             2
+                        border.width:       1
+                        border.color:       "#666666"
+                        
+                        Component.onCompleted: {
+                            console.log('[TowerOptimize] Optimized bar created for', metricName, 'value:', optimizedValue, 'width:', width, 'height:', height)
+                        }
                         
                         QGCLabel {
                             anchors.centerIn:   parent
-                            text:               optimizedValue.toFixed(format === "f0" ? 0 : (format === "f1" ? 1 : 2)) + (unit ? " " + unit : "")
+                            text:               {
+                                var val = optimizedValue
+                                var decimals = format === "f0" ? 0 : (format === "f1" ? 1 : 2)
+                                return val.toFixed(decimals) + (unit ? " " + unit : "")
+                            }
                             color:              "white"
                             font.pointSize:     ScreenTools.defaultFontPointSize * 0.8
+                            font.bold:          true
                         }
                     }
                 }

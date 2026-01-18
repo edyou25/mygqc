@@ -917,19 +917,20 @@ Item {
         // Right pane for mission editing controls
         Rectangle {
             id:                 rightPanel
-            height:             parent.height
-            width:              _rightPanelWidth
-            color:              qgcPal.window
-            opacity:            layerTabBar.visible ? 0.2 : 0
+            anchors.top:        parent.top
             anchors.bottom:     parent.bottom
             anchors.right:      parent.right
             anchors.rightMargin: _toolsMargin
+            width:              _rightPanelWidth
+            color:              qgcPal.window
+            opacity:            layerTabBar.visible ? 0.2 : 0
             
             Component.onCompleted: {
                 console.log('[TowerOptimize] rightPanel Component.onCompleted')
                 console.log('[TowerOptimize]   - width:', width, 'height:', height)
                 console.log('[TowerOptimize]   - x:', x, 'y:', y)
                 console.log('[TowerOptimize]   - anchors.rightMargin:', anchors.rightMargin)
+                console.log('[TowerOptimize]   - parent.height:', parent.height)
             }
         }
         //-------------------------------------------------------
