@@ -1272,22 +1272,45 @@ Item {
                 Layout.fillWidth: true
                 enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                 onClicked: {
-                    console.log('[TowerOptimize] A* optimization button clicked')
-                    TowerOpt.optimizeMissionAStar(_missionController, _planMasterController, 0.2)
+                    console.log('[TowerOptimize] ===== A* optimization button clicked =====')
+                    console.log('[TowerOptimize] _missionController:', !!_missionController)
+                    console.log('[TowerOptimize] _planMasterController:', !!_planMasterController)
+                    console.log('[TowerOptimize] visualItems.count:', _missionController ? _missionController.visualItems.count : 0)
+                    
+                    // 在优化前先获取原始路径点（如果还没有保存的话）
+                    var originalBefore = TowerOpt.getOriginalPathWaypoints() || []
+                    console.log('[TowerOptimize] Original path waypoints before optimization:', originalBefore.length)
+                    
+                    // 执行优化
+                    console.log('[TowerOptimize] Calling optimizeMissionAStar...')
+                    try {
+                        TowerOpt.optimizeMissionAStar(_missionController, _planMasterController, 0.2)
+                        console.log('[TowerOptimize] optimizeMissionAStar returned successfully')
+                    } catch(e) {
+                        console.error('[TowerOptimize] optimizeMissionAStar threw error:', e.toString())
+                    }
                     console.log('[TowerOptimize] A* Optimization completed')
+                    
                     // 更新原始路径显示
                     originalPathForDisplay = TowerOpt.getOriginalPathWaypoints() || []
-                    console.log('[TowerOptimize] Original path waypoints:', originalPathForDisplay.length)
-                    // 刷新对比面板
-                    console.log('[TowerOptimize] Checking comparisonPanelLoader for A*, item:', !!comparisonPanelLoader.item)
-                    console.log('[TowerOptimize]   - comparisonPanelLoader.status:', comparisonPanelLoader.status)
-                    console.log('[TowerOptimize]   - comparisonPanelLoader.visible:', comparisonPanelLoader.visible)
-                    if (comparisonPanelLoader.item) {
-                        console.log('[TowerOptimize] Calling refresh on comparison panel (A*)')
-                        comparisonPanelLoader.item.refresh()
-                    } else {
-                        console.warn('[TowerOptimize] comparisonPanelLoader.item is null (A*), status:', comparisonPanelLoader.status)
-                    }
+                    console.log('[TowerOptimize] Original path waypoints after optimization:', originalPathForDisplay.length)
+                    console.log('[TowerOptimize] originalPathForDisplay:', originalPathForDisplay)
+                    
+                    // 延迟刷新对比面板，确保数据已准备好
+                    Qt.callLater(function() {
+                        console.log('[TowerOptimize] Checking comparisonPanelLoader for A*, item:', !!comparisonPanelLoader.item)
+                        console.log('[TowerOptimize]   - comparisonPanelLoader.status:', comparisonPanelLoader.status)
+                        console.log('[TowerOptimize]   - comparisonPanelLoader.visible:', comparisonPanelLoader.visible)
+                        if (comparisonPanelLoader.item) {
+                            // 将原始路径点传递给对比面板
+                            comparisonPanelLoader.item.originalPathWaypoints = originalPathForDisplay
+                            console.log('[TowerOptimize] Set originalPathWaypoints on comparison panel:', originalPathForDisplay.length)
+                            console.log('[TowerOptimize] Calling refresh on comparison panel (A*)')
+                            comparisonPanelLoader.item.refresh()
+                        } else {
+                            console.warn('[TowerOptimize] comparisonPanelLoader.item is null (A*), status:', comparisonPanelLoader.status)
+                        }
+                    })
                     dropPanel.hide()
                 }
             }

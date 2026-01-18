@@ -27,6 +27,7 @@ Rectangle {
     
     property var missionController: null
     property var comparisonData: ({ original: null, optimized: null })
+    property var originalPathWaypoints: []  // 从外部传入的原始路径点
     
     QGCPalette { id: qgcPal }
     
@@ -56,17 +57,41 @@ Rectangle {
         console.log('[TowerOptimize] Panel parent:', !!parent)
         if (missionController) {
             console.log('[TowerOptimize] Getting path comparison metrics...')
-            comparisonData = TowerOpt.getPathComparisonMetrics(missionController)
+            console.log('[TowerOptimize] originalPathWaypoints from property:', originalPathWaypoints.length)
+            // 如果通过属性传入了原始路径点，使用它；否则使用模块变量
+            if (originalPathWaypoints && originalPathWaypoints.length > 0) {
+                console.log('[TowerOptimize] Using originalPathWaypoints from QML property')
+                comparisonData = TowerOpt.getPathComparisonMetricsWithOriginal(missionController, originalPathWaypoints)
+            } else {
+                console.log('[TowerOptimize] Using originalPathWaypoints from module variable')
+                comparisonData = TowerOpt.getPathComparisonMetrics(missionController)
+            }
             console.log('[TowerOptimize] Comparison data received:')
             console.log('[TowerOptimize]   - original:', !!comparisonData.original)
             console.log('[TowerOptimize]   - optimized:', !!comparisonData.optimized)
             if (comparisonData.original) {
                 console.log('[TowerOptimize]   - original obstacleMinDistance:', comparisonData.original.obstacleMinDistance)
+                console.log('[TowerOptimize]   - original obstacleAvgDistance:', comparisonData.original.obstacleAvgDistance)
                 console.log('[TowerOptimize]   - original signalAvg:', comparisonData.original.signalAvg)
+                console.log('[TowerOptimize]   - original signalMin:', comparisonData.original.signalMin)
+                console.log('[TowerOptimize]   - original signalMax:', comparisonData.original.signalMax)
+                console.log('[TowerOptimize]   - original pathLength:', comparisonData.original.pathLength)
+                console.log('[TowerOptimize]   - original pathSmoothness:', comparisonData.original.pathSmoothness)
+                console.log('[TowerOptimize]   - original overscore:', comparisonData.original.overscore)
+            } else {
+                console.warn('[TowerOptimize]   - original data is null!')
             }
             if (comparisonData.optimized) {
                 console.log('[TowerOptimize]   - optimized obstacleMinDistance:', comparisonData.optimized.obstacleMinDistance)
+                console.log('[TowerOptimize]   - optimized obstacleAvgDistance:', comparisonData.optimized.obstacleAvgDistance)
                 console.log('[TowerOptimize]   - optimized signalAvg:', comparisonData.optimized.signalAvg)
+                console.log('[TowerOptimize]   - optimized signalMin:', comparisonData.optimized.signalMin)
+                console.log('[TowerOptimize]   - optimized signalMax:', comparisonData.optimized.signalMax)
+                console.log('[TowerOptimize]   - optimized pathLength:', comparisonData.optimized.pathLength)
+                console.log('[TowerOptimize]   - optimized pathSmoothness:', comparisonData.optimized.pathSmoothness)
+                console.log('[TowerOptimize]   - optimized overscore:', comparisonData.optimized.overscore)
+            } else {
+                console.warn('[TowerOptimize]   - optimized data is null!')
             }
             updateChart()
             console.log('[TowerOptimize] Chart updated')
@@ -132,8 +157,28 @@ Rectangle {
                         property string metricKey:      modelData.key
                         property string unit:           modelData.unit
                         property string format:         modelData.format
-                        property real   originalValue:  comparisonPanel.comparisonData.original ? comparisonPanel.comparisonData.original[modelData.key] : 0
-                        property real   optimizedValue: comparisonPanel.comparisonData.optimized ? comparisonPanel.comparisonData.optimized[modelData.key] : 0
+                        property real   originalValue:  {
+                            var val = comparisonPanel.comparisonData.original ? comparisonPanel.comparisonData.original[modelData.key] : 0
+                            if (index === 0) {
+                                console.log('[TowerOptimize] Metric', modelData.key, 'originalValue:', val, 'original data exists:', !!comparisonPanel.comparisonData.original)
+                            }
+                            return val
+                        }
+                        property real   optimizedValue: {
+                            var val = comparisonPanel.comparisonData.optimized ? comparisonPanel.comparisonData.optimized[modelData.key] : 0
+                            if (index === 0) {
+                                console.log('[TowerOptimize] Metric', modelData.key, 'optimizedValue:', val, 'optimized data exists:', !!comparisonPanel.comparisonData.optimized)
+                            }
+                            return val
+                        }
+                        
+                        Component.onCompleted: {
+                            if (index === 0) {
+                                console.log('[TowerOptimize] MetricItem Loader created for', modelData.name)
+                                console.log('[TowerOptimize]   - originalValue:', originalValue)
+                                console.log('[TowerOptimize]   - optimizedValue:', optimizedValue)
+                            }
+                        }
                     }
                 }
                 
@@ -229,8 +274,14 @@ Rectangle {
             property real   originalValue:  0
             property real   optimizedValue: 0
             
-            height:         ScreenTools.defaultFontPixelHeight * 3
+            height:         ScreenTools.defaultFontPixelHeight * 4
             width:          parent.width
+            
+            Component.onCompleted: {
+                console.log('[TowerOptimize] MetricItemComponent created for', metricName)
+                console.log('[TowerOptimize]   - originalValue:', originalValue)
+                console.log('[TowerOptimize]   - optimizedValue:', optimizedValue)
+            }
             
             Rectangle {
                 anchors.fill:       parent
