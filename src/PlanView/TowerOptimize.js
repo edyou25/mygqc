@@ -10,6 +10,7 @@ var config = null
 var debugSearchTrees = [] // 存储A*搜索树用于可视化
 var weatherSensors = []   // 存储天气传感器位置（禁飞区）
 var pathOptManager = null // C++ PathOptimizationManager 实例
+var originalPathWaypoints = [] // 存储优化前的原始路径点，用于对比显示
 
 // JavaScript日志函数 - 统一通过C++处理
 function writeTowerOptimizeLog(message) {
@@ -206,6 +207,206 @@ function getDebugSearchTrees() {
 
 function clearDebugSearchTrees() { debugSearchTrees = [] }
 
+// 获取原始路径点，用于对比显示
+function getOriginalPathWaypoints() {
+    return originalPathWaypoints
+}
+
+// 计算路径指标
+function calculatePathMetrics(waypoints) {
+    if (!waypoints || waypoints.length < 2) {
+        return null
+    }
+    
+    var metrics = {
+        obstacleMinDistance: Infinity,
+        obstacleAvgDistance: 0,
+        signalAvg: 0,
+        signalMin: Infinity,
+        signalMax: -Infinity,
+        signalDistribution: [],
+        pathLength: 0,
+        pathSmoothness: 0,
+        overscore: 0
+    }
+    
+    var totalObstacleDist = 0
+    var totalSignal = 0
+    var validPoints = 0
+    var totalAngleChange = 0
+    var angleChanges = 0
+    
+    function distanceMeters(lat1, lon1, lat2, lon2) {
+        var R = 6371000
+        var dLat = (lat2-lat1) * Math.PI/180
+        var dLon = (lon2-lon1) * Math.PI/180
+        var a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2)
+        var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+        return R * c
+    }
+    
+    function signalStrength(lat, lon) {
+        var composite = 0
+        var attenExp = getConfig('astar', 'signalModel.attenuationExponent', 1.2)
+        var baseDistance = getConfig('astar', 'signalModel.baseDistanceMeters', 300.0)
+        var radiusMeters = getConfig('astar', 'signalModel.signalRadiusMeters', 12000.0)
+        var strengthMultiplier = getConfig('astar', 'signalModel.strengthMultiplier', 1.0)
+        
+        for (var ti=0; ti<towers.length; ti++) {
+            var tw = towers[ti]
+            var d = distanceMeters(lat, lon, tw.lat, tw.lon)
+            if (d < radiusMeters) {
+                var normD = d / baseDistance
+                composite += strengthMultiplier / Math.pow(normD + 1.0, attenExp)
+            }
+        }
+        return composite
+    }
+    
+    function distanceToObstacle(lat, lon) {
+        if (!weatherSensors || weatherSensors.length === 0) {
+            return Infinity
+        }
+        var minDist = Infinity
+        for (var i = 0; i < weatherSensors.length; i++) {
+            var sensor = weatherSensors[i]
+            var dist = distanceMeters(lat, lon, sensor.lat, sensor.lon)
+            var sensorRadius = sensor.radius || 100
+            var actualDist = dist - sensorRadius
+            if (actualDist < minDist) {
+                minDist = actualDist
+            }
+        }
+        return minDist
+    }
+    
+    // 计算路径长度和信号强度
+    for (var i = 0; i < waypoints.length; i++) {
+        var wp = waypoints[i]
+        if (!wp || !wp.isValid) continue
+        
+        var lat = typeof wp.latitude === 'function' ? wp.latitude() : wp.latitude
+        var lon = typeof wp.longitude === 'function' ? wp.longitude() : wp.longitude
+        
+        // 计算信号强度
+        var sig = signalStrength(lat, lon)
+        metrics.signalDistribution.push(sig)
+        totalSignal += sig
+        if (sig < metrics.signalMin) metrics.signalMin = sig
+        if (sig > metrics.signalMax) metrics.signalMax = sig
+        
+        // 计算障碍物距离
+        var obsDist = distanceToObstacle(lat, lon)
+        if (obsDist < metrics.obstacleMinDistance) {
+            metrics.obstacleMinDistance = obsDist
+        }
+        totalObstacleDist += obsDist
+        
+        // 计算路径长度
+        if (i > 0) {
+            var prevWp = waypoints[i-1]
+            if (prevWp && prevWp.isValid) {
+                var prevLat = typeof prevWp.latitude === 'function' ? prevWp.latitude() : prevWp.latitude
+                var prevLon = typeof prevWp.longitude === 'function' ? prevWp.longitude() : prevWp.longitude
+                metrics.pathLength += distanceMeters(prevLat, prevLon, lat, lon)
+                
+                // 计算角度变化（平滑性）
+                if (i > 1) {
+                    var prevPrevWp = waypoints[i-2]
+                    if (prevPrevWp && prevPrevWp.isValid) {
+                        var prevPrevLat = typeof prevPrevWp.latitude === 'function' ? prevPrevWp.latitude() : prevPrevWp.latitude
+                        var prevPrevLon = typeof prevPrevWp.longitude === 'function' ? prevPrevWp.longitude() : prevPrevWp.longitude
+                        
+                        var angle1 = Math.atan2(lat - prevLat, lon - prevLon) * 180 / Math.PI
+                        var angle2 = Math.atan2(prevLat - prevPrevLat, prevLon - prevPrevLon) * 180 / Math.PI
+                        var angleDiff = Math.abs(angle1 - angle2)
+                        if (angleDiff > 180) angleDiff = 360 - angleDiff
+                        totalAngleChange += angleDiff
+                        angleChanges++
+                    }
+                }
+            }
+        }
+        
+        validPoints++
+    }
+    
+    if (validPoints > 0) {
+        metrics.obstacleAvgDistance = totalObstacleDist / validPoints
+        metrics.signalAvg = totalSignal / validPoints
+        if (angleChanges > 0) {
+            metrics.pathSmoothness = totalAngleChange / angleChanges
+        }
+    }
+    
+    if (metrics.obstacleMinDistance === Infinity) {
+        metrics.obstacleMinDistance = 0
+    }
+    if (metrics.signalMin === Infinity) {
+        metrics.signalMin = 0
+    }
+    if (metrics.signalMax === -Infinity) {
+        metrics.signalMax = 0
+    }
+    
+    // 计算overscore分数（综合评分，值越大越好）
+    // overscore = 信号强度 * 0.4 + 障碍物距离 * 0.3 + 路径平滑性 * 0.2 + 路径长度倒数 * 0.1
+    var lengthScore = metrics.pathLength > 0 ? 10000 / metrics.pathLength : 0
+    var smoothScore = 180 - metrics.pathSmoothness  // 角度变化越小越好
+    metrics.overscore = metrics.signalAvg * 0.4 + 
+                        metrics.obstacleAvgDistance * 0.3 + 
+                        smoothScore * 0.2 + 
+                        lengthScore * 0.1
+    
+    return metrics
+}
+
+// 获取原始路径和优化后路径的指标
+function getPathComparisonMetrics(missionController) {
+    console.log('[TowerOptimize] getPathComparisonMetrics called, missionController:', !!missionController)
+    var originalMetrics = null
+    var optimizedMetrics = null
+    
+    console.log('[TowerOptimize] originalPathWaypoints length:', originalPathWaypoints ? originalPathWaypoints.length : 0)
+    if (originalPathWaypoints && originalPathWaypoints.length > 0) {
+        console.log('[TowerOptimize] Calculating original path metrics...')
+        originalMetrics = calculatePathMetrics(originalPathWaypoints)
+        console.log('[TowerOptimize] Original metrics calculated:', !!originalMetrics)
+    } else {
+        console.warn('[TowerOptimize] No original path waypoints available')
+    }
+    
+    // 获取当前优化后的路径
+    if (missionController && missionController.visualItems) {
+        var visualItems = missionController.visualItems
+        console.log('[TowerOptimize] visualItems count:', visualItems ? visualItems.count : 0)
+        if (visualItems && visualItems.count > 0) {
+            var currentPath = []
+            for (var i = 1; i < visualItems.count; i++) {
+                var item = visualItems.get(i)
+                if (item && item.coordinate && item.coordinate.isValid) {
+                    currentPath.push(item.coordinate)
+                }
+            }
+            console.log('[TowerOptimize] Current path length:', currentPath.length)
+            if (currentPath.length > 0) {
+                console.log('[TowerOptimize] Calculating optimized path metrics...')
+                optimizedMetrics = calculatePathMetrics(currentPath)
+                console.log('[TowerOptimize] Optimized metrics calculated:', !!optimizedMetrics)
+            }
+        }
+    } else {
+        console.warn('[TowerOptimize] No missionController or visualItems available')
+    }
+    
+    var result = {
+        original: originalMetrics,
+        optimized: optimizedMetrics
+    }
+    console.log('[TowerOptimize] Returning comparison data, original:', !!result.original, 'optimized:', !!result.optimized)
+    return result
+}
+
 // A* based adjustment: For each eligible waypoint (excluding last), perform grid search
 // to find a new coordinate balancing: (1) stay close to original waypoint, (2) be closer
 // to next waypoint (progress), (3) maximize signal strength from towers.
@@ -226,6 +427,20 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     // 清除之前的debug数据
     clearDebugSearchTrees()
     options = options || {}
+    
+    // 记录优化前的原始路径点，用于对比显示
+    originalPathWaypoints = []
+    for (var origIdx = 1; origIdx < visualItems.count; origIdx++) {
+        var origItem = visualItems.get(origIdx)
+        if (origItem && origItem.coordinate && origItem.coordinate.isValid) {
+            originalPathWaypoints.push(Pos.QtPositioning.coordinate(
+                origItem.coordinate.latitude,
+                origItem.coordinate.longitude,
+                origItem.coordinate.altitude
+            ))
+        }
+    }
+    console.log('[TowerOptimize] Saved', originalPathWaypoints.length, 'original waypoints for comparison')
     
     // 从配置文件读取A*参数
     var cellSize = options.cellSizeMeters || getConfig('astar', 'cellSizeMeters', 30)
@@ -930,6 +1145,20 @@ function optimizeMissionRRT(missionController, planMasterController, options) {
 
     // 兼容传入数字的老调用方式（例如 0.2）
     options = (typeof options === 'object' && options) ? options : {}
+    
+    // 记录优化前的原始路径点，用于对比显示
+    originalPathWaypoints = []
+    for (var origIdx = 1; origIdx < visualItems.count; origIdx++) {
+        var origItem = visualItems.get(origIdx)
+        if (origItem && origItem.coordinate && origItem.coordinate.isValid) {
+            originalPathWaypoints.push(Pos.QtPositioning.coordinate(
+                origItem.coordinate.latitude,
+                origItem.coordinate.longitude,
+                origItem.coordinate.altitude
+            ))
+        }
+    }
+    console.log('[TowerOptimize] Saved', originalPathWaypoints.length, 'original waypoints for comparison')
 
     // RRT 参数
     var searchRadiusMeters     = options.searchRadiusMeters     || 300.0   // 局部搜索半径
@@ -1424,6 +1653,20 @@ function optimizeMissionAStarNew(missionController, planMasterController, option
         console.warn('[TowerOptimize] Not enough waypoints for A* New optimization')
         return
     }
+    
+    // 记录优化前的原始路径点，用于对比显示
+    originalPathWaypoints = []
+    for (var origIdx = 0; origIdx < waypoints.length; origIdx++) {
+        var origWp = waypoints[origIdx]
+        if (origWp && origWp.coordinate && origWp.coordinate.isValid) {
+            originalPathWaypoints.push(Pos.QtPositioning.coordinate(
+                origWp.coordinate.latitude,
+                origWp.coordinate.longitude,
+                origWp.coordinate.altitude
+            ))
+        }
+    }
+    console.log('[TowerOptimize] Saved', originalPathWaypoints.length, 'original waypoints for comparison')
     
     console.log('[TowerOptimize] Found', waypoints.length, 'waypoints for A* New optimization')
     for (var i = 0; i < waypoints.length; i++) {

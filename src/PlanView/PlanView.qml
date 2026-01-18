@@ -30,6 +30,7 @@ Item {
     id: _root
 
     property bool planControlColapsed: false
+    property var originalPathForDisplay: []  // 用于存储原始路径，触发QML更新
 
     readonly property int   _decimalPlaces:             8
     readonly property real  _margin:                    ScreenTools.defaultFontPixelHeight * 0.5
@@ -466,6 +467,16 @@ Item {
                 showSpecialVisual:  _missionController.isROIBeginCurrentItem
                 model:              _missionController.simpleFlightPathSegments
                 opacity:            _editingLayer == _layerMission ? 1 : editorMap._nonInteractiveOpacity
+            }
+
+            // 显示优化前的原始路径（用于对比）
+            MapPolyline {
+                id:                 originalPathPolyline
+                line.width:         4  // 增加线宽，更明显
+                line.color:         '#959b59'  // 红色显示原始路径，更醒目
+                z:                  QGroundControl.zOrderWaypointLines - 1  // 在优化路径下方
+                opacity:            _editingLayer == _layerMission && originalPathForDisplay.length > 0 ? 0.8 : 0  // 提高不透明度
+                path:               originalPathForDisplay
             }
 
             // Direction arrows in waypoint lines
@@ -908,6 +919,68 @@ Item {
             anchors.rightMargin: _toolsMargin
         }
         //-------------------------------------------------------
+        // Path Comparison Panel (Left side of right panel)
+        Loader {
+            id:                 comparisonPanelLoader
+            source:             "PathComparisonPanel.qml"
+            anchors.right:      rightPanel.left
+            anchors.rightMargin: _toolsMargin
+            anchors.top:        parent.top
+            anchors.bottom:     parent.bottom
+            width:              400
+            visible:            _editingLayer == _layerMission && item !== null
+            
+            active:             true  // 确保Loader是活动的
+            
+            Component.onCompleted: {
+                console.log('[TowerOptimize] comparisonPanelLoader Component.onCompleted')
+                console.log('[TowerOptimize]   - source:', source)
+                console.log('[TowerOptimize]   - active:', active)
+                console.log('[TowerOptimize]   - visible:', visible)
+                console.log('[TowerOptimize]   - _editingLayer:', _editingLayer)
+                console.log('[TowerOptimize]   - _layerMission:', _layerMission)
+            }
+            
+            onLoaded: {
+                console.log('[TowerOptimize] PathComparisonPanel loaded, item:', !!item)
+                if (item) {
+                    item.missionController = _missionController
+                    console.log('[TowerOptimize] PathComparisonPanel missionController set')
+                    // 延迟刷新，确保数据已准备好
+                    Qt.callLater(function() {
+                        if (item) {
+                            item.refresh()
+                        }
+                    })
+                }
+            }
+            
+            onStatusChanged: {
+                console.log('[TowerOptimize] PathComparisonPanel status changed:', status)
+                if (status === Loader.Error) {
+                    console.error('[TowerOptimize] Failed to load PathComparisonPanel')
+                    console.error('[TowerOptimize]   - source:', source)
+                    console.error('[TowerOptimize]   - errorString:', sourceComponent ? sourceComponent.errorString() : "unknown")
+                    if (sourceComponent) {
+                        console.error('[TowerOptimize]   - sourceComponent.status:', sourceComponent.status)
+                    }
+                } else if (status === Loader.Ready) {
+                    console.log('[TowerOptimize] PathComparisonPanel ready')
+                    console.log('[TowerOptimize]   - visible:', visible)
+                    console.log('[TowerOptimize]   - item:', !!item)
+                    console.log('[TowerOptimize]   - editingLayer:', _editingLayer)
+                    console.log('[TowerOptimize]   - layerMission:', _layerMission)
+                    console.log('[TowerOptimize]   - anchors.right:', anchors.right)
+                    console.log('[TowerOptimize]   - width:', width, 'height:', height)
+                } else if (status === Loader.Loading) {
+                    console.log('[TowerOptimize] PathComparisonPanel loading...')
+                } else if (status === Loader.Null) {
+                    console.log('[TowerOptimize] PathComparisonPanel status: Null')
+                }
+            }
+        }
+        
+        //-------------------------------------------------------
         // Right Panel Controls
         Item {
             anchors.fill:           rightPanel
@@ -1146,7 +1219,22 @@ Item {
                 Layout.fillWidth: true
                 enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                 onClicked: {
+                    console.log('[TowerOptimize] A* optimization button clicked')
                     TowerOpt.optimizeMissionAStar(_missionController, _planMasterController, 0.2)
+                    console.log('[TowerOptimize] A* Optimization completed')
+                    // 更新原始路径显示
+                    originalPathForDisplay = TowerOpt.getOriginalPathWaypoints() || []
+                    console.log('[TowerOptimize] Original path waypoints:', originalPathForDisplay.length)
+                    // 刷新对比面板
+                    console.log('[TowerOptimize] Checking comparisonPanelLoader for A*, item:', !!comparisonPanelLoader.item)
+                    console.log('[TowerOptimize]   - comparisonPanelLoader.status:', comparisonPanelLoader.status)
+                    console.log('[TowerOptimize]   - comparisonPanelLoader.visible:', comparisonPanelLoader.visible)
+                    if (comparisonPanelLoader.item) {
+                        console.log('[TowerOptimize] Calling refresh on comparison panel (A*)')
+                        comparisonPanelLoader.item.refresh()
+                    } else {
+                        console.warn('[TowerOptimize] comparisonPanelLoader.item is null (A*), status:', comparisonPanelLoader.status)
+                    }
                     dropPanel.hide()
                 }
             }
@@ -1155,7 +1243,20 @@ Item {
                 Layout.fillWidth: true
                 enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                 onClicked: {
+                    console.log('[TowerOptimize] RRT optimization button clicked')
                     TowerOpt.optimizeMissionRRT(_missionController, _planMasterController, 0.2)
+                    console.log('[TowerOptimize] RRT Optimization completed')
+                    // 更新原始路径显示
+                    originalPathForDisplay = TowerOpt.getOriginalPathWaypoints() || []
+                    console.log('[TowerOptimize] Original path waypoints:', originalPathForDisplay.length)
+                    // 刷新对比面板
+                    console.log('[TowerOptimize] Checking comparisonPanelLoader for RRT, item:', !!comparisonPanelLoader.item)
+                    if (comparisonPanelLoader.item) {
+                        console.log('[TowerOptimize] Calling refresh on comparison panel (RRT)')
+                        comparisonPanelLoader.item.refresh()
+                    } else {
+                        console.warn('[TowerOptimize] comparisonPanelLoader.item is null (RRT)')
+                    }
                     dropPanel.hide()
                 }
             }
@@ -1164,7 +1265,26 @@ Item {
                 Layout.fillWidth: true
                 enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                 onClicked: {
+                    console.log('[TowerOptimize] A* New optimization button clicked')
                     TowerOpt.optimizeMissionAStarNew(_missionController, _planMasterController, 0.2)
+                    console.log('[TowerOptimize] Optimization completed')
+                    // 更新原始路径显示
+                    originalPathForDisplay = TowerOpt.getOriginalPathWaypoints() || []
+                    console.log('[TowerOptimize] Original path waypoints:', originalPathForDisplay.length)
+                    // 刷新对比面板
+                    console.log('[TowerOptimize] Checking comparisonPanelLoader')
+                    console.log('[TowerOptimize]   - comparisonPanelLoader exists:', !!comparisonPanelLoader)
+                    console.log('[TowerOptimize]   - comparisonPanelLoader.item:', !!comparisonPanelLoader.item)
+                    console.log('[TowerOptimize]   - comparisonPanelLoader.visible:', comparisonPanelLoader.visible)
+                    console.log('[TowerOptimize]   - comparisonPanelLoader.status:', comparisonPanelLoader.status)
+                    if (comparisonPanelLoader.item) {
+                        console.log('[TowerOptimize] Calling refresh on comparison panel')
+                        comparisonPanelLoader.item.refresh()
+                    } else {
+                        console.warn('[TowerOptimize] comparisonPanelLoader.item is null, cannot refresh')
+                        console.warn('[TowerOptimize] Loader status:', comparisonPanelLoader.status)
+                        console.warn('[TowerOptimize] Loader source:', comparisonPanelLoader.source)
+                    }
                     dropPanel.hide()
                 }
             }

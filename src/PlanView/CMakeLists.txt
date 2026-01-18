@@ -11,12 +11,13 @@ add_custom_target(PlanViewQml
 		GeoFenceMapVisuals.qml
 		MissionItemEditor.qml
 		MissionItemMapVisual.qml
-		MissionItemStatus.qml
-		MissionSettingsEditor.qml
-		PlanEditToolbar.qml
-		PlanToolBarIndicators.qml
-		PlanToolBar.qml
-		PlanView.qml
+	MissionItemStatus.qml
+	MissionSettingsEditor.qml
+	PathComparisonPanel.qml
+	PlanEditToolbar.qml
+	PlanToolBarIndicators.qml
+	PlanToolBar.qml
+	PlanView.qml
 		RallyPointEditorHeader.qml
 		RallyPointItemEditor.qml
 		RallyPointMapVisuals.qml
