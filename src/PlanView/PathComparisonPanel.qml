@@ -7,7 +7,7 @@
 import QtQuick          2.3
 import QtQuick.Controls 1.2
 import QtQuick.Layouts  1.2
-import QtCharts         2.3
+// import QtCharts         2.3  // Temporarily disabled
 
 import QGroundControl                   1.0
 import QGroundControl.ScreenTools       1.0
@@ -31,11 +31,20 @@ Rectangle {
     QGCPalette { id: qgcPal }
     
     Component.onCompleted: {
-        console.log('[TowerOptimize] PathComparisonPanel created')
+        console.log('[TowerOptimize] ===== PathComparisonPanel Component.onCompleted =====')
         console.log('[TowerOptimize]   - missionController:', !!missionController)
         console.log('[TowerOptimize]   - Panel width:', width, 'height:', height)
         console.log('[TowerOptimize]   - Panel visible:', visible)
         console.log('[TowerOptimize]   - Panel color:', color)
+        console.log('[TowerOptimize]   - Panel parent:', !!parent)
+        console.log('[TowerOptimize]   - Panel x:', x, 'y:', y)
+        console.log('[TowerOptimize]   - comparisonData:', !!comparisonData)
+        console.log('[TowerOptimize]   - qgcPal:', !!qgcPal)
+        console.log('[TowerOptimize] ===== Component.onCompleted end =====')
+        // 延迟刷新，确保所有组件都已初始化
+        Qt.callLater(function() {
+            refresh()
+        })
     }
     
     function refresh() {
@@ -83,12 +92,25 @@ Rectangle {
         
         // Scrollable content
         ScrollView {
+            id:             scrollView
             width:          parent.width
             height:         parent.height - header.height - refreshButton.height - parent.spacing * 3
             
+            Component.onCompleted: {
+                console.log('[TowerOptimize] PathComparisonPanel ScrollView created')
+                console.log('[TowerOptimize]   - width:', width, 'height:', height)
+                console.log('[TowerOptimize]   - header.height:', header.height)
+                console.log('[TowerOptimize]   - refreshButton.height:', refreshButton.height)
+            }
+            
             Column {
+                id:         contentColumn
                 width:      parent.width
                 spacing:    ScreenTools.defaultFontPixelHeight * 0.5
+                
+                Component.onCompleted: {
+                    console.log('[TowerOptimize] PathComparisonPanel contentColumn created')
+                }
                 
                 // Metric comparison items
                 Repeater {
@@ -135,44 +157,37 @@ Rectangle {
                             font.pointSize: ScreenTools.defaultFontPointSize * 0.9
                         }
                         
-                        ChartView {
-                            id:             signalChart
+                        // Signal distribution chart - temporarily simplified
+                        Rectangle {
                             width:          parent.width
                             height:         parent.height - signalLabel.height - parent.spacing * 2
-                            antialiasing:   true
-                            backgroundColor: "transparent"
-                            legend.visible: false
+                            color:          qgcPal.window
+                            border.color:   qgcPal.text
+                            border.width:   1
                             
-                            ValueAxis {
-                                id:         axisX
-                                min:        0
-                                max:        100
-                            }
-                            
-                            ValueAxis {
-                                id:         axisY
-                                min:        0
-                                max:        100
-                            }
-                            
-                            LineSeries {
-                                id:         originalSignalSeries
-                                name:       "Original"
-                                axisX:      axisX
-                                axisY:      axisY
-                                color:      "#959b59"
-                                width:      2
-                                visible:     comparisonPanel.comparisonData.original && comparisonPanel.comparisonData.original.signalDistribution
-                            }
-                            
-                            LineSeries {
-                                id:         optimizedSignalSeries
-                                name:       "Optimized"
-                                axisX:      axisX
-                                axisY:      axisY
-                                color:      QGroundControl.globalPalette.mapMissionTrajectory
-                                width:      2
-                                visible:     comparisonPanel.comparisonData.optimized && comparisonPanel.comparisonData.optimized.signalDistribution
+                            Column {
+                                anchors.fill:       parent
+                                anchors.margins:   ScreenTools.defaultFontPixelWidth
+                                spacing:           ScreenTools.defaultFontPixelHeight * 0.25
+                                
+                                QGCLabel {
+                                    text:           "Chart placeholder"
+                                    font.pointSize: ScreenTools.defaultFontPointSize * 0.8
+                                }
+                                
+                                QGCLabel {
+                                    text:           comparisonPanel.comparisonData.original ? 
+                                                   ("Original points: " + (comparisonPanel.comparisonData.original.signalDistribution ? comparisonPanel.comparisonData.original.signalDistribution.length : 0)) : 
+                                                   "No original data"
+                                    font.pointSize: ScreenTools.defaultFontPointSize * 0.7
+                                }
+                                
+                                QGCLabel {
+                                    text:           comparisonPanel.comparisonData.optimized ? 
+                                                   ("Optimized points: " + (comparisonPanel.comparisonData.optimized.signalDistribution ? comparisonPanel.comparisonData.optimized.signalDistribution.length : 0)) : 
+                                                   "No optimized data"
+                                    font.pointSize: ScreenTools.defaultFontPointSize * 0.7
+                                }
                             }
                         }
                     }
@@ -185,115 +200,88 @@ Rectangle {
             id:                 refreshButton
             text:               "Refresh"
             anchors.horizontalCenter: parent.horizontalCenter
+            
+            Component.onCompleted: {
+                console.log('[TowerOptimize] PathComparisonPanel refreshButton created')
+            }
+            
             onClicked: {
+                console.log('[TowerOptimize] Refresh button clicked')
                 comparisonPanel.refresh()
             }
         }
     }
     
-    Component.onCompleted: {
-        refresh()
-    }
-    
     function updateChart() {
-        if (!comparisonData) return
-        
-        // Clear existing data
-        originalSignalSeries.clear()
-        optimizedSignalSeries.clear()
-        
-        // Update original signal distribution
-        if (comparisonData.original && comparisonData.original.signalDistribution) {
-            var origDist = comparisonData.original.signalDistribution
-            var maxY = 0
-            for (var i = 0; i < origDist.length; i++) {
-                var x = (i / Math.max(origDist.length - 1, 1)) * 100
-                var y = origDist[i]
-                originalSignalSeries.append(x, y)
-                if (y > maxY) maxY = y
-            }
-        }
-        
-        // Update optimized signal distribution
-        if (comparisonData.optimized && comparisonData.optimized.signalDistribution) {
-            var optDist = comparisonData.optimized.signalDistribution
-            for (var j = 0; j < optDist.length; j++) {
-                var x2 = (j / Math.max(optDist.length - 1, 1)) * 100
-                var y2 = optDist[j]
-                optimizedSignalSeries.append(x2, y2)
-                if (y2 > maxY) maxY = y2
-            }
-        }
-        
-        // Update Y axis
-        axisY.max = maxY * 1.1
+        // Chart update temporarily disabled - using placeholder
+        console.log('[TowerOptimize] updateChart called (placeholder mode)')
     }
-}
-
-// Metric comparison item component
-Component {
-    id:                 metricItemComponent
     
-    Item {
-        property string metricName:     ""
-        property string metricKey:      ""
-        property string unit:           ""
-        property string format:         "f2"
-        property real   originalValue:  0
-        property real   optimizedValue: 0
+    // Metric comparison item component
+    Component {
+        id:                 metricItemComponent
         
-        height:         ScreenTools.defaultFontPixelHeight * 3
-        width:          parent.width
-        
-        Rectangle {
-            anchors.fill:       parent
-            color:              qgcPal.windowShade
-            border.color:        qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.1) : Qt.rgba(1,1,1,0.1)
-            border.width:        1
-            radius:              4
-        }
-        
-        Column {
-            anchors.fill:       parent
-            anchors.margins:    ScreenTools.defaultFontPixelWidth * 0.5
-            spacing:            ScreenTools.defaultFontPixelHeight * 0.25
-        
-            QGCLabel {
-                text:           metricName
-                font.pointSize: ScreenTools.defaultFontPointSize * 0.9
+        Item {
+            property string metricName:     ""
+            property string metricKey:      ""
+            property string unit:           ""
+            property string format:         "f2"
+            property real   originalValue:  0
+            property real   optimizedValue: 0
+            
+            height:         ScreenTools.defaultFontPixelHeight * 3
+            width:          parent.width
+            
+            Rectangle {
+                anchors.fill:       parent
+                color:              qgcPal.windowShade
+                border.color:        qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.1) : Qt.rgba(1,1,1,0.1)
+                border.width:        1
+                radius:              4
             }
             
-            Row {
-                width:          parent.width
-                spacing:        ScreenTools.defaultFontPixelWidth
-                
-                // Original value bar
-                Rectangle {
-                    width:          (parent.width - parent.spacing) * 0.5
-                    height:         ScreenTools.defaultFontPixelHeight * 1.5
-                    color:          "#959b59"
-                    radius:         2
-                    
-                    QGCLabel {
-                        anchors.centerIn:   parent
-                        text:               originalValue.toFixed(format === "f0" ? 0 : (format === "f1" ? 1 : 2)) + (unit ? " " + unit : "")
-                        color:              "white"
-                        font.pointSize:     ScreenTools.defaultFontPointSize * 0.8
-                    }
+            Column {
+                anchors.fill:       parent
+                anchors.margins:    ScreenTools.defaultFontPixelWidth * 0.5
+                spacing:            ScreenTools.defaultFontPixelHeight * 0.25
+            
+                QGCLabel {
+                    text:           metricName
+                    font.pointSize: ScreenTools.defaultFontPointSize * 0.9
                 }
                 
-                // Optimized value bar
-                Rectangle {
-                    width:          (parent.width - parent.spacing) * 0.5
-                    height:         ScreenTools.defaultFontPixelHeight * 1.5
-                    color:          QGroundControl.globalPalette.mapMissionTrajectory
-                    radius:         2
+                Row {
+                    width:          parent.width
+                    spacing:        ScreenTools.defaultFontPixelWidth
                     
-                    QGCLabel {
-                        anchors.centerIn:   parent
-                        text:               optimizedValue.toFixed(format === "f0" ? 0 : (format === "f1" ? 1 : 2)) + (unit ? " " + unit : "")
-                        color:              "white"
-                        font.pointSize:     ScreenTools.defaultFontPointSize * 0.8
+                    // Original value bar
+                    Rectangle {
+                        width:          (parent.width - parent.spacing) * 0.5
+                        height:         ScreenTools.defaultFontPixelHeight * 1.5
+                        color:          "#959b59"
+                        radius:         2
+                        
+                        QGCLabel {
+                            anchors.centerIn:   parent
+                            text:               originalValue.toFixed(format === "f0" ? 0 : (format === "f1" ? 1 : 2)) + (unit ? " " + unit : "")
+                            color:              "white"
+                            font.pointSize:     ScreenTools.defaultFontPointSize * 0.8
+                        }
+                    }
+                    
+                    // Optimized value bar
+                    Rectangle {
+                        width:          (parent.width - parent.spacing) * 0.5
+                        height:         ScreenTools.defaultFontPixelHeight * 1.5
+                        color:          QGroundControl.globalPalette.mapMissionTrajectory
+                        radius:         2
+                        
+                        QGCLabel {
+                            anchors.centerIn:   parent
+                            text:               optimizedValue.toFixed(format === "f0" ? 0 : (format === "f1" ? 1 : 2)) + (unit ? " " + unit : "")
+                            color:              "white"
+                            font.pointSize:     ScreenTools.defaultFontPointSize * 0.8
+                        }
                     }
                 }
             }

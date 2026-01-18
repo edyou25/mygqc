@@ -288,8 +288,10 @@ Item {
 
     // Load towers once when PlanView root completes
     Component.onCompleted: {
-        console.log('[PlanView] ===== Testing C++ Backend =====')
-        console.log('[PlanView] typeof PathOptimizationManager:', typeof PathOptimizationManager)
+        console.log('[TowerOptimize] ===== PlanView _root Component.onCompleted =====')
+        console.log('[TowerOptimize] PlanView loaded and initialized')
+        console.log('[TowerOptimize] ===== Testing C++ Backend =====')
+        console.log('[TowerOptimize] typeof PathOptimizationManager:', typeof PathOptimizationManager)
         
         // C++后端初始化（用于碰撞检测）
         if (typeof PathOptimizationManager !== 'undefined') {
@@ -380,6 +382,11 @@ Item {
     Item {
         id:             panel
         anchors.fill:   parent
+        
+        Component.onCompleted: {
+            console.log('[TowerOptimize] PlanView panel Component.onCompleted')
+            console.log('[TowerOptimize]   - rightPanel exists:', !!rightPanel)
+        }
 
         FlightMap {
             id:                         editorMap
@@ -917,6 +924,13 @@ Item {
             anchors.bottom:     parent.bottom
             anchors.right:      parent.right
             anchors.rightMargin: _toolsMargin
+            
+            Component.onCompleted: {
+                console.log('[TowerOptimize] rightPanel Component.onCompleted')
+                console.log('[TowerOptimize]   - width:', width, 'height:', height)
+                console.log('[TowerOptimize]   - x:', x, 'y:', y)
+                console.log('[TowerOptimize]   - anchors.rightMargin:', anchors.rightMargin)
+            }
         }
         //-------------------------------------------------------
         // Path Comparison Panel (Left side of right panel)
@@ -932,13 +946,27 @@ Item {
             
             active:             true  // 确保Loader是活动的
             
+            // 立即输出初始状态
+            property bool _initialized: false
+            onActiveChanged: {
+                console.log('[TowerOptimize] comparisonPanelLoader active changed:', active)
+            }
+            
+            onSourceChanged: {
+                console.log('[TowerOptimize] comparisonPanelLoader source changed:', source)
+            }
+            
             Component.onCompleted: {
-                console.log('[TowerOptimize] comparisonPanelLoader Component.onCompleted')
+                console.log('[TowerOptimize] ===== comparisonPanelLoader Component.onCompleted =====')
                 console.log('[TowerOptimize]   - source:', source)
                 console.log('[TowerOptimize]   - active:', active)
                 console.log('[TowerOptimize]   - visible:', visible)
                 console.log('[TowerOptimize]   - _editingLayer:', _editingLayer)
                 console.log('[TowerOptimize]   - _layerMission:', _layerMission)
+                console.log('[TowerOptimize]   - parent:', !!parent)
+                console.log('[TowerOptimize]   - rightPanel:', !!rightPanel)
+                console.log('[TowerOptimize]   - status:', status)
+                console.log('[TowerOptimize] ===== Component.onCompleted end =====')
             }
             
             onLoaded: {
@@ -956,27 +984,52 @@ Item {
             }
             
             onStatusChanged: {
-                console.log('[TowerOptimize] PathComparisonPanel status changed:', status)
+                console.log('[TowerOptimize] ===== PathComparisonPanel status changed =====')
+                console.log('[TowerOptimize]   - status:', status, '(0=Null, 1=Ready, 2=Loading, 3=Error)')
+                console.log('[TowerOptimize]   - source:', source)
+                console.log('[TowerOptimize]   - active:', active)
+                console.log('[TowerOptimize]   - item:', !!item)
+                console.log('[TowerOptimize]   - visible:', visible)
+                
                 if (status === Loader.Error) {
-                    console.error('[TowerOptimize] Failed to load PathComparisonPanel')
+                    console.error('[TowerOptimize] ===== LOADER ERROR =====')
                     console.error('[TowerOptimize]   - source:', source)
-                    console.error('[TowerOptimize]   - errorString:', sourceComponent ? sourceComponent.errorString() : "unknown")
+                    console.error('[TowerOptimize]   - sourceComponent exists:', !!sourceComponent)
                     if (sourceComponent) {
                         console.error('[TowerOptimize]   - sourceComponent.status:', sourceComponent.status)
+                        console.error('[TowerOptimize]   - sourceComponent.errorString:', sourceComponent.errorString())
+                        console.error('[TowerOptimize]   - sourceComponent.errorLine:', sourceComponent.errorLine)
+                        console.error('[TowerOptimize]   - sourceComponent.errorColumn:', sourceComponent.errorColumn)
                     }
+                    console.error('[TowerOptimize]   - Try to get error from Loader')
+                    try {
+                        var errorInfo = comparisonPanelLoader.sourceComponent
+                        if (errorInfo) {
+                            console.error('[TowerOptimize]   - Error info:', JSON.stringify(errorInfo))
+                        }
+                    } catch(e) {
+                        console.error('[TowerOptimize]   - Cannot get error info:', e)
+                    }
+                    console.error('[TowerOptimize] ===== ERROR END =====')
                 } else if (status === Loader.Ready) {
-                    console.log('[TowerOptimize] PathComparisonPanel ready')
+                    console.log('[TowerOptimize] ===== PathComparisonPanel READY =====')
                     console.log('[TowerOptimize]   - visible:', visible)
                     console.log('[TowerOptimize]   - item:', !!item)
+                    console.log('[TowerOptimize]   - item type:', item ? typeof item : 'null')
                     console.log('[TowerOptimize]   - editingLayer:', _editingLayer)
                     console.log('[TowerOptimize]   - layerMission:', _layerMission)
                     console.log('[TowerOptimize]   - anchors.right:', anchors.right)
+                    console.log('[TowerOptimize]   - anchors.rightMargin:', anchors.rightMargin)
                     console.log('[TowerOptimize]   - width:', width, 'height:', height)
+                    console.log('[TowerOptimize]   - x:', x, 'y:', y)
+                    console.log('[TowerOptimize] ===== READY END =====')
                 } else if (status === Loader.Loading) {
                     console.log('[TowerOptimize] PathComparisonPanel loading...')
+                    console.log('[TowerOptimize]   - source:', source)
                 } else if (status === Loader.Null) {
-                    console.log('[TowerOptimize] PathComparisonPanel status: Null')
+                    console.log('[TowerOptimize] PathComparisonPanel status: Null (not loaded)')
                 }
+                console.log('[TowerOptimize] ===== status changed end =====')
             }
         }
         
