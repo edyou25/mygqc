@@ -193,14 +193,14 @@ Rectangle {
 
                 Repeater {
                     model: [
-                        { name: "Min Obstacle Distance", key: "obstacleMinDistance", unit: "m", format: "f1" },
-                        { name: "Avg Obstacle Distance", key: "obstacleAvgDistance", unit: "m", format: "f1" },
-                        { name: "Avg Signal Strength", key: "signalAvg", unit: "", format: "f2" },
-                        { name: "Min Signal Strength", key: "signalMin", unit: "", format: "f2" },
-                        { name: "Max Signal Strength", key: "signalMax", unit: "", format: "f2" },
-                        { name: "Path Length", key: "pathLength", unit: "m", format: "f0" },
-                        { name: "Path Smoothness", key: "pathSmoothness", unit: "°", format: "f1" },
-                        { name: "Overall Score", key: "overscore", unit: "", format: "f2" }
+                        { name: "Min Obstacle Distance", key: "obstacleMinDistance", unit: "m", format: "f1", higherBetter: true  },
+                        { name: "Avg Obstacle Distance", key: "obstacleAvgDistance", unit: "m", format: "f1", higherBetter: true  },
+                        { name: "Avg Signal Strength",   key: "signalAvg",          unit: "",  format: "f2", higherBetter: true  },
+                        { name: "Min Signal Strength",   key: "signalMin",          unit: "",  format: "f2", higherBetter: true  },
+                        { name: "Max Signal Strength",   key: "signalMax",          unit: "",  format: "f2", higherBetter: true  },
+                        { name: "Path Length",           key: "pathLength",         unit: "m", format: "f0", higherBetter: false },
+                        { name: "Path Smoothness",       key: "pathSmoothness",     unit: "°", format: "f1", higherBetter: false },
+                        { name: "Overall Score",         key: "overscore",          unit: "",  format: "f2", higherBetter: true  }
                     ]
 
                     delegate: Loader {
@@ -212,6 +212,8 @@ Rectangle {
                         property string metricKey:      modelData.key
                         property string unit:           modelData.unit
                         property string format:         modelData.format
+                        property bool   higherBetter:   modelData.higherBetter
+
                         property real   originalValue:  comparisonPanel.comparisonData.original ? (comparisonPanel.comparisonData.original[modelData.key] || 0) : 0
                         property real   optimizedValue: comparisonPanel.comparisonData.optimized ? (comparisonPanel.comparisonData.optimized[modelData.key] || 0) : 0
 
@@ -226,6 +228,7 @@ Rectangle {
                                     }
                                     metricLoader.item.originalValue = newOriginal
                                     metricLoader.item.optimizedValue = newOptimized
+                                    metricLoader.item.higherBetter = modelData.higherBetter
                                 }
                             }
                         }
@@ -244,6 +247,7 @@ Rectangle {
                                 item.metricKey = metricKey
                                 item.unit = unit
                                 item.format = format
+                                item.higherBetter = higherBetter
                                 item.originalValue = originalValue
                                 item.optimizedValue = optimizedValue
                                 if (index === 0) {
@@ -331,6 +335,9 @@ Rectangle {
     }
 
     // Metric comparison item component (horizontal bars, two columns: Original / Optimized)
+    // Visual rule:
+    // - If optimized is better (delta > 0), exaggerate the separation between the two bars.
+    // - If optimized is worse (delta < 0), compress the separation (make it less obvious).
     Component {
         id: metricItemComponent
 
@@ -339,18 +346,45 @@ Rectangle {
             property string metricKey:      ""
             property string unit:           ""
             property string format:         "f2"
+            property bool   higherBetter:   true
             property real   originalValue:  0
             property real   optimizedValue: 0
 
             width:  parent.width
             height: Math.max(ScreenTools.defaultFontPixelHeight * 2.2, comparisonPanel._barHeight + ScreenTools.defaultFontPixelHeight * 1.0)
 
-            property real _maxVal: Math.max(Math.abs(originalValue), Math.abs(optimizedValue), 1e-6)
-
             function _fmt(v) {
                 var decimals = (format === "f0") ? 0 : ((format === "f1") ? 1 : 2)
                 return v.toFixed(decimals) + (unit ? " " + unit : "")
             }
+
+            // Stable tanh (avoid relying on Math.tanh in older engines)
+            function _tanh(x) {
+                var e2x = Math.exp(2 * x)
+                return (e2x - 1) / (e2x + 1)
+            }
+
+            // Signed deltaPercent: positive => optimized is better
+            function _deltaPercent() {
+                var o = Number(originalValue || 0)
+                var p = Number(optimizedValue || 0)
+                var denom = Math.max(Math.abs(o), Math.abs(p), 1e-6)
+                var raw = (p - o) / denom
+                return higherBetter ? raw : -raw
+            }
+
+            function _strength(dp) {
+                return 1 - Math.exp(-Math.abs(dp))
+            }
+
+            property real _dp: _deltaPercent()            // >0 => optimized better
+            property real _d:  _tanh(_dp * 2.0)          // [-1, 1]
+            property real _s:  _strength(_dp)            // [0, 1)
+            property real _contrast: (_dp > 0) ? (1.0 + 0.9 * _s) : (1.0 - 0.7 * _s)
+
+            // Fractions centered around 0.5; contrast controls exaggeration/compression
+            property real _origFrac: Math.max(0.05, Math.min(0.95, 0.5 - 0.5 * _contrast * _d))
+            property real _optFrac:  Math.max(0.05, Math.min(0.95, 0.5 + 0.5 * _contrast * _d))
 
             Rectangle {
                 anchors.fill: parent
@@ -390,7 +424,7 @@ Rectangle {
                         Rectangle {
                             id: originalFill
                             height: parent.height
-                            width: Math.max(0, Math.min(parent.width, parent.width * (Math.abs(originalValue) / _maxVal)))
+                            width: parent.width * _origFrac
                             radius: 2
                             color: "#4569df"
                         }
@@ -422,7 +456,7 @@ Rectangle {
                         Rectangle {
                             id: optimizedFill
                             height: parent.height
-                            width: Math.max(0, Math.min(parent.width, parent.width * (Math.abs(optimizedValue) / _maxVal)))
+                            width: parent.width * _optFrac
                             radius: 2
                             color: QGroundControl.globalPalette.mapMissionTrajectory
                         }
