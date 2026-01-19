@@ -392,7 +392,7 @@ Rectangle {
                             height: parent.height
                             width: Math.max(0, Math.min(parent.width, parent.width * (Math.abs(originalValue) / _maxVal)))
                             radius: 2
-                            color: "#959b59"
+                            color: "#4569df"
                         }
 
                         QGCLabel {

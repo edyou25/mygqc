@@ -480,7 +480,7 @@ Item {
             MapPolyline {
                 id:                 originalPathPolyline
                 line.width:         4  // 增加线宽，更明显
-                line.color:         '#959b59'  // 红色显示原始路径，更醒目
+                line.color:         '#4569df'  // 红色显示原始路径，更醒目
                 z:                  QGroundControl.zOrderWaypointLines - 1  // 在优化路径下方
                 opacity:            _editingLayer == _layerMission && originalPathForDisplay.length > 0 ? 0.8 : 0  // 提高不透明度
                 path:               originalPathForDisplay
