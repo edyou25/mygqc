@@ -89,7 +89,7 @@ Rectangle {
                 console.log('[TowerOptimize]   - original signalAvg:', comparisonData.original.signalAvg)
                 console.log('[TowerOptimize]   - original signalMin:', comparisonData.original.signalMin)
                 console.log('[TowerOptimize]   - original signalMax:', comparisonData.original.signalMax)
-                console.log('[TowerOptimize]   - original pathLength:', comparisonData.original.pathLength)
+                console.log('[TowerOptimize]   - original energyIndex (pathLength):', comparisonData.original.pathLength)
                 console.log('[TowerOptimize]   - original pathSmoothness:', comparisonData.original.pathSmoothness)
                 console.log('[TowerOptimize]   - original overscore:', comparisonData.original.overscore)
             } else {
@@ -102,7 +102,7 @@ Rectangle {
                 console.log('[TowerOptimize]   - optimized signalAvg:', comparisonData.optimized.signalAvg)
                 console.log('[TowerOptimize]   - optimized signalMin:', comparisonData.optimized.signalMin)
                 console.log('[TowerOptimize]   - optimized signalMax:', comparisonData.optimized.signalMax)
-                console.log('[TowerOptimize]   - optimized pathLength:', comparisonData.optimized.pathLength)
+                console.log('[TowerOptimize]   - optimized energyIndex (pathLength):', comparisonData.optimized.pathLength)
                 console.log('[TowerOptimize]   - optimized pathSmoothness:', comparisonData.optimized.pathSmoothness)
                 console.log('[TowerOptimize]   - optimized overscore:', comparisonData.optimized.overscore)
             } else {
@@ -198,7 +198,7 @@ Rectangle {
                         { name: "Avg Signal Strength",   key: "signalAvg",          unit: "",  format: "f2", higherBetter: true  },
                         { name: "Min Signal Strength",   key: "signalMin",          unit: "",  format: "f2", higherBetter: true  },
                         { name: "Max Signal Strength",   key: "signalMax",          unit: "",  format: "f2", higherBetter: true  },
-                        { name: "Path Length",           key: "pathLength",         unit: "m", format: "f0", higherBetter: false },
+                        { name: "Energy Index",          key: "pathLength",         unit: "",  format: "f2", higherBetter: false },
                         { name: "Path Smoothness",       key: "pathSmoothness",     unit: "°", format: "f1", higherBetter: false },
                         { name: "Overall Score",         key: "overscore",          unit: "",  format: "f2", higherBetter: true  }
                     ]
