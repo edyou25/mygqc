@@ -3,11 +3,13 @@ find_package(Qt5 REQUIRED COMPONENTS Core Positioning Gui)
 set(PathOptimization_SOURCES
     TowerOptimizer.cc
     PathOptimizationManager.cc
+
 )
 
 set(PathOptimization_HEADERS
     TowerOptimizer.h
     PathOptimizationManager.h
+
 )
 
 add_library(PathOptimization STATIC

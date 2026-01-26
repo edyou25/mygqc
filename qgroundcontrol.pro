@@ -401,6 +401,7 @@ INCLUDEPATH += \
     src/PlanView \
     src/MissionManager \
     src/PositionManager \
+    src/PathOptimization \
     src/QmlControls \
     src/QtLocationPlugin \
     src/QtLocationPlugin/QMLControl \
@@ -913,6 +914,7 @@ SOURCES += \
     src/Gimbal/GimbalController.cc \
     src/QGC.cc \
     src/QGCApplication.cc \
+    src/PathOptimization/PathOptimizationManager.cc \
     src/QGCCachedFileDownload.cc \
     src/QGCComboBox.cc \
     src/QGCFileDownload.cc \

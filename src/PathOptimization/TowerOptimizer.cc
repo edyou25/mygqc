@@ -10,7 +10,8 @@
 #include "TowerOptimizer.h"
 #include "QGC.h"
 // #include "TerrainQuery.h"  // TODO: Add terrain query integration when available
-
+#include "PathOptimizationManager.h"
+#include <QtGlobal>   // for qBound
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -385,9 +386,37 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointAStar(const QGeoCoordinate& curr
     // A* parameters
     double cellSize = _config.cellSizeMeters;
     int radiusCells = _config.radiusCells;
+
+    // Base weights from config
     double wDev = _config.weightDeviation;
     double wSig = _config.weightSignal;
+
     int maxIterations = _config.maxIterations;
+
+    // --- Apply UI weights (PathOptimizationManager) ---
+    // Keep a minimum distance/deviation influence to avoid "going wild"
+    constexpr double kMinDistanceWeight = 0.10; // 10% baseline even if slider is 0
+
+    double uiDistW = 1.0;
+    double uiSigW  = 1.0;
+
+    if (auto mgr = qobject_cast<PathOptimizationManager*>(parent())) {
+        uiDistW = qBound(0.0, mgr->distanceWeight(), 1.0);
+        uiSigW  = qBound(0.0, mgr->signalWeight(),   1.0);
+    }
+
+    // map distance weight to [kMinDistanceWeight, 1.0]
+    uiDistW = kMinDistanceWeight + (1.0 - kMinDistanceWeight) * uiDistW;
+
+    // apply
+    wDev *= uiDistW;
+    wSig *= uiSigW;
+
+    qCInfo(TowerOptimizerLog) << "A* UI weights:"
+                            << "distance=" << uiDistW
+                            << "signal=" << uiSigW
+                            << "=> wDev=" << wDev
+                            << "wSig=" << wSig;
     
     // Separation constraints
     double minSeparation = _config.minSeparationMeters;

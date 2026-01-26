@@ -35,6 +35,12 @@
 
 #include "QGC.h"
 #include "QGCApplication.h"
+
+#include "PathOptimization/PathOptimizationManager.h"
+#include <QtQml>
+#include "GreenlandArea.h"
+#include <QQmlEngine>
+#include "WaterArea.h"
 #include "CmdLineOptParser.h"
 #include "UDPLink.h"
 #include "LinkManager.h"
@@ -458,7 +464,8 @@ void QGCApplication::_initCommon()
 
     qmlRegisterType<QGCPalette>     ("QGroundControl.Palette", 1, 0, "QGCPalette");
     qmlRegisterType<QGCMapPalette>  ("QGroundControl.Palette", 1, 0, "QGCMapPalette");
-
+    qmlRegisterType<GreenlandArea>("QGroundControl.Greenland", 1, 0, "GreenlandArea");
+    qmlRegisterType<WaterArea>("QGroundControl.Water", 1, 0, "WaterArea");
     qmlRegisterUncreatableType<Vehicle>                 (kQGCVehicle,                       1, 0, "Vehicle",                    kRefOnly);
     qmlRegisterUncreatableType<MissionManager>          (kQGCVehicle,                       1, 0, "MissionManager",             kRefOnly);
     qmlRegisterUncreatableType<ParameterManager>        (kQGCVehicle,                       1, 0, "ParameterManager",           kRefOnly);
