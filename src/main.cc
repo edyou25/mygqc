@@ -8,6 +8,7 @@
  ****************************************************************************/
 
 #include <QtGlobal>
+#include <QResource>
 #include <QApplication>
 #include <QIcon>
 #include <QSslSocket>
@@ -23,7 +24,10 @@
 #include "QGC.h"
 #include "QGCApplication.h"
 #include "AppMessages.h"
-
+extern int qInitResources_qgroundcontrol();
+extern int qInitResources_qgcresources();
+extern int qInitResources_qgcimages();
+extern int qInitResources_qml();
 #ifndef NO_SERIAL_LINK
     #include "SerialLink.h"
 #endif
@@ -372,6 +376,12 @@ int main(int argc, char *argv[])
     QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
     QGCApplication* app = new QGCApplication(argc, argv, runUnitTests);
     Q_CHECK_PTR(app);
+    // 强制初始化所有可能包含你 JSON 的资源集合（关键）
+    qInitResources_qgroundcontrol();
+    qInitResources_qgcresources();
+    qInitResources_qgcimages();
+    qInitResources_qml();
+    Q_INIT_RESOURCE(qgroundcontrol);
     if(app->isErrorState()) {
         app->exec();
         return -1;

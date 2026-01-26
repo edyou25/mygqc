@@ -23,7 +23,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <cstdlib>
-
+#include <QResource>
 QGC_LOGGING_CATEGORY(TowerOptimizerLog, "TowerOptimizerLog")
 
 // 自定义日志输出函数，将C++日志也写入TowerOptimize专用日志文件
@@ -100,46 +100,59 @@ void OptimizationConfig::loadFromJson(const QJsonObject& json)
 
 bool TowerOptimizer::loadTowersFromJson(const QString& jsonFilePath)
 {
-    QFile file(jsonFilePath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        qCWarning(TowerOptimizerLog) << "Failed to open towers file:" << jsonFilePath;
+    QString path = jsonFilePath;
+
+    // Allow QML-style qrc:/ URLs
+    if (path.startsWith(QStringLiteral("qrc:/"))) {
+        path = QStringLiteral(":") + path.mid(3); // "qrc:/x" -> ":/x"
+    }
+
+    qDebug() << "[TowerOptimizer] loadTowersFromJson input =" << jsonFilePath
+             << "normalized =" << path
+             << "QResource valid =" << QResource(path).isValid();
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qCWarning(TowerOptimizerLog) << "Failed to open towers file:" << path
+                                     << "exists=" << file.exists()
+                                     << "error=" << file.errorString();
         return false;
     }
-    
-    QByteArray data = file.readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    
+
+    const QByteArray data = file.readAll();
+    const QJsonDocument doc = QJsonDocument::fromJson(data);
+
     if (!doc.isArray()) {
         qCWarning(TowerOptimizerLog) << "Invalid towers JSON format";
         return false;
     }
-    
+
     _towers.clear();
     _sensors.clear();
-    
-    QJsonArray array = doc.array();
+
+    const QJsonArray array = doc.array();
     for (const QJsonValue& value : array) {
-        QJsonObject obj = value.toObject();
-        
-        double lat = obj["latitude"].toDouble();
-        double lon = obj["longitude"].toDouble();
-        QString name = obj["name"].toString();
-        QString type = obj["type"].toString("tower");
-        
-        QGeoCoordinate coord(lat, lon);
+        const QJsonObject obj = value.toObject();
+
+        const double lat = obj["latitude"].toDouble();
+        const double lon = obj["longitude"].toDouble();
+        const QString name = obj["name"].toString();
+        const QString type = obj["type"].toString(QStringLiteral("tower"));
+
+        const QGeoCoordinate coord(lat, lon);
         if (!coord.isValid()) {
             qCWarning(TowerOptimizerLog) << "Invalid coordinate:" << lat << lon;
             continue;
         }
-        
+
         TowerInfo info(coord, name, type);
-        
-        if (type == "sensor") {
+
+        if (type == QStringLiteral("sensor")) {
             info.noFlyRadius = obj["no_fly_radius"].toDouble(600.0);
-            info.direction = obj["direction"].toString("up");
+            info.direction = obj["direction"].toString(QStringLiteral("up"));
             _sensors.append(info);
-            qCInfo(TowerOptimizerLog) << "Loaded sensor:" << info.name 
-                                      << "at" << coord 
+            qCInfo(TowerOptimizerLog) << "Loaded sensor:" << info.name
+                                      << "at" << coord
                                       << "noFlyRadius:" << info.noFlyRadius << "m"
                                       << "direction:" << info.direction;
         } else {
@@ -147,37 +160,83 @@ bool TowerOptimizer::loadTowersFromJson(const QString& jsonFilePath)
             qCInfo(TowerOptimizerLog) << "Loaded tower:" << info.name << "at" << coord;
         }
     }
-    
-    qCInfo(TowerOptimizerLog) << "Loaded" << _towers.size() << "towers and" 
+
+    qCInfo(TowerOptimizerLog) << "Loaded" << _towers.size() << "towers and"
                               << _sensors.size() << "sensors";
     emit towersLoaded(_towers.size(), _sensors.size());
-    
+
     return true;
 }
 
 bool TowerOptimizer::loadConfigFromJson(const QString& configFilePath)
 {
-    QFile file(configFilePath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        qCWarning(TowerOptimizerLog) << "Failed to open config file:" << configFilePath;
+    QString path = configFilePath;
+
+    if (path.startsWith(QStringLiteral("qrc:/"))) {
+        path = QStringLiteral(":") + path.mid(3);
+    }
+
+    qDebug() << "[TowerOptimizer] loadConfigFromJson input =" << configFilePath
+             << "normalized =" << path
+             << "QResource valid =" << QResource(path).isValid();
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qCWarning(TowerOptimizerLog) << "Failed to open config file:" << path
+                                     << "exists=" << file.exists()
+                                     << "error=" << file.errorString();
         return false;
     }
-    
-    QByteArray data = file.readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    
+
+    const QByteArray data = file.readAll();
+    const QJsonDocument doc = QJsonDocument::fromJson(data);
+
     if (!doc.isObject()) {
         qCWarning(TowerOptimizerLog) << "Invalid config JSON format";
         return false;
     }
-    
+
     _config.loadFromJson(doc.object());
     qCInfo(TowerOptimizerLog) << "Configuration loaded";
     emit configLoaded();
-    
+
     return true;
 }
 
+
+
+void TowerOptimizer::clearAttractors()
+{
+    _extraAttractors.clear();
+    qCInfo(TowerOptimizerLog) << "Attractors cleared";
+}
+
+void TowerOptimizer::setAttractors(const QVariantList& points)
+{
+    _extraAttractors.clear();
+    _extraAttractors.reserve(points.size());
+
+    for (const QVariant& v : points) {
+        const QVariantMap m = v.toMap();
+        const double lat = m.value("lat").toDouble();
+        const double lon = m.value("lon").toDouble();
+        const QString name = m.value("name").toString();
+        const QString type = m.value("type").isValid()
+                ? m.value("type").toString()
+                : QStringLiteral("region");
+        QGeoCoordinate c(lat, lon);
+        if (!c.isValid()) {
+            continue;
+        }
+
+        TowerInfo info(c, name, type);
+        _extraAttractors.append(info);
+    }
+
+    qCInfo(TowerOptimizerLog) << "Attractors set:" << _extraAttractors.size()
+                             << "scale=" << _extraAttractorScale;
+    qWarning() << "[Attractors-C++] setAttractors count=" << _extraAttractors.size();
+}
 double TowerOptimizer::_haversineDistance(const QGeoCoordinate& coord1, const QGeoCoordinate& coord2)
 {
     constexpr double R = 6371000.0; // Earth radius in meters
@@ -195,7 +254,7 @@ double TowerOptimizer::_haversineDistance(const QGeoCoordinate& coord1, const QG
     return R * c;
 }
 
-double TowerOptimizer::calculateSignalStrength(const QGeoCoordinate& coord)
+/*double TowerOptimizer::calculateSignalStrength(const QGeoCoordinate& coord)
 {
     double composite = 0.0;
     
@@ -211,7 +270,68 @@ double TowerOptimizer::calculateSignalStrength(const QGeoCoordinate& coord)
     }
     
     return composite;
+}*/
+/*double TowerOptimizer::calculateSignalStrength(const QGeoCoordinate& coord)
+{
+    double composite = 0.0;
+
+    auto accumulate = [&](const QVector<TowerInfo>& towers, double scale) {
+        for (const TowerInfo& tower : towers) {
+            const double distance = _haversineDistance(coord, tower.coordinate);
+
+            if (distance < _config.signalRadiusMeters) {
+                const double normDist = distance / _config.baseDistanceMeters;
+                const double strength = (_config.strengthMultiplier * scale) /
+                                        qPow(normDist + 1.0, _config.attenuationExponent);
+                composite += strength;
+            }
+        }
+    };
+
+    accumulate(_towers, 1.0);
+    accumulate(_extraAttractors, _extraAttractorScale);
+
+    return composite;
+}*/
+
+double TowerOptimizer::calculateSignalStrength(const QGeoCoordinate& coord)
+{
+    double composite = 0.0;
+
+    // 新增：分别统计
+    double towersSum = 0.0;
+    double extraSum  = 0.0;
+
+    auto accumulate = [&](const QVector<TowerInfo>& towers, double scale, double& bucket) {
+        for (const TowerInfo& tower : towers) {
+            const double distance = _haversineDistance(coord, tower.coordinate);
+            if (distance < _config.signalRadiusMeters) {
+                const double normDist = distance / _config.baseDistanceMeters;
+                const double strength = (_config.strengthMultiplier * scale) /
+                                        qPow(normDist + 1.0, _config.attenuationExponent);
+                composite += strength;
+                bucket += strength; // 新增：落到对应统计桶
+            }
+        }
+    };
+
+    accumulate(_towers, 1.0, towersSum);
+    accumulate(_extraAttractors, _extraAttractorScale, extraSum);
+
+    static int printed = 0;
+    if (printed++ < 10) {
+        qDebug() << "[Sig]"
+                 << "coord=" << coord
+                 << "towersSum=" << towersSum
+                 << "extraSum=" << extraSum
+                 << "extraCount=" << _extraAttractors.size()
+                 << "extraScale=" << _extraAttractorScale
+                 << "signalRadius=" << _config.signalRadiusMeters;
+    }
+
+    return composite;
 }
+
 
 bool TowerOptimizer::checkWeatherCollision(const QGeoCoordinate& coord)
 {
@@ -382,7 +502,16 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointAStar(const QGeoCoordinate& curr
 {
     // Clear caches for fresh calculation
     _clearCaches();
-    
+    qWarning() << "[Attractors-C++] at _optimizeWaypointAStar start extraCount="
+           << _extraAttractors.size()
+           << "scale=" << _extraAttractorScale
+           << "towers=" << _towers.size()
+           << "sensors=" << _sensors.size();
+    qDebug() << "[A*] ENTER"
+            << "current=" << current
+            << "next=" << next
+            << "prevValid=" << prev.isValid()
+            << "alt=" << altitude;
     // A* parameters
     double cellSize = _config.cellSizeMeters;
     int radiusCells = _config.radiusCells;
@@ -605,14 +734,18 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointAStar(const QGeoCoordinate& curr
     }
     
     qCInfo(TowerOptimizerLog) << "A* completed after" << iterations << "iterations";
-    
+    qDebug() << "[A*] DONE iterations=" << iterations
+         << "best gx,gy=" << bestSoFar->gx << bestSoFar->gy
+         << "best f=" << bestSoFar->f
+         << "best sig=" << bestSoFar->sig
+         << "best dev=" << bestSoFar->dev;
     // Get best coordinate
     QGeoCoordinate result = _gridToCoord(bestSoFar->gx, bestSoFar->gy, current);
     result.setAltitude(altitude);
     
     // Cleanup
     qDeleteAll(allNodes);
-    
+    qDebug() << "[A*] RESULT coord=" << result;
     return result;
 }
 
@@ -1224,6 +1357,13 @@ QVector<QGeoCoordinate> TowerOptimizer::_planPathAStarNew(const QGeoCoordinate& 
 
 QVector<QGeoCoordinate> TowerOptimizer::optimizePathAStarNew(const QVector<QGeoCoordinate>& originalPath, double altitude)
 {
-    writeTowerOptimizeLog(QString("Public method: optimizePathAStarNew called with %1 waypoints, altitude: %2").arg(originalPath.size()).arg(altitude));
+    qWarning() << "[Attractors-C++] at optimizePathAStarNew start extraCount="
+               << _extraAttractors.size()
+               << "alt=" << altitude
+               << "wps=" << originalPath.size();
+
+    writeTowerOptimizeLog(QString("Public method: optimizePathAStarNew called with %1 waypoints, altitude: %2")
+                          .arg(originalPath.size()).arg(altitude));
+
     return _optimizePathAStarNew(originalPath, altitude);
 }

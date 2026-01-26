@@ -122,11 +122,49 @@ Item {
     function saveWatersGlobal() {
         waterSettings.watersJson = _serializeWaters()
         waterSettings.nextId = editorMap.waterNextId
+        _pushRegionAttractorsToCpp()
+        console.log("[Attractors] greenlands=", editorMap.greenlands ? editorMap.greenlands.length : -1,
+            "waters=", editorMap.waters ? editorMap.waters.length : -1)
+
+        console.log("[Attractors] about to call setAttractors, pts=", pts.length)
+        PathOptimizationManager.towerOptimizer.setAttractors(pts)
+        console.log("[Attractors] called setAttractors OK")
     }
 
     function loadWatersGlobal() {
         _restoreWatersFromJson(waterSettings.watersJson)
+        _pushRegionAttractorsToCpp()
     }
+
+    function _pushRegionAttractorsToCpp() {
+        console.log("[Attractors] ENTER _pushRegionAttractorsToCpp")
+        if (typeof PathOptimizationManager === "undefined") return
+        if (!PathOptimizationManager.towerOptimizer) return
+
+        var pts = []
+
+        if (editorMap.greenlands) {
+            for (var i = 0; i < editorMap.greenlands.length; i++) {
+                var g = editorMap.greenlands[i]
+                if (!g || !g.path || g.path.length < 3) continue
+                var c = editorMap._pathCenter(g.path)
+                pts.push({ lat: c.latitude, lon: c.longitude, name: "Greenland" + g.gid, type: "greenland" })
+            }
+        }
+
+        if (editorMap.waters) {
+            for (var j = 0; j < editorMap.waters.length; j++) {
+                var w = editorMap.waters[j]
+                if (!w || !w.path || w.path.length < 3) continue
+                var c2 = editorMap._pathCenter(w.path)
+                pts.push({ lat: c2.latitude, lon: c2.longitude, name: "Water" + w.wid, type: "water" })
+            }
+        }
+
+        PathOptimizationManager.towerOptimizer.setAttractors(pts)
+        console.log("[Attractors] pushed:", pts.length)
+    }
+
     function _serializeGreenlands() {
         var out = []
         if (!editorMap.greenlands) return "[]"
@@ -200,10 +238,12 @@ Item {
     function saveGreenlandsGlobal() {
         greenlandSettings.greenlandsJson = _serializeGreenlands()
         greenlandSettings.nextId = editorMap.greenlandNextId
+        _pushRegionAttractorsToCpp()
     }
 
     function loadGreenlandsGlobal() {
         _restoreGreenlandsFromJson(greenlandSettings.greenlandsJson)
+        _pushRegionAttractorsToCpp()
     }
     // =======================
     // Roads (GeoJSON) loader
@@ -559,8 +599,8 @@ Item {
             console.log('[PlanView] ✓✓✓ C++ backend IS AVAILABLE!')
             console.log('[PlanView] Instance:', PathOptimizationManager)
             console.log('[PlanView] Calling C++ loadDefaultTowers()...')
-            //PathOptimizationManager.loadDefaultTowers()
-            //PathOptimizationManager.loadDefaultConfig()
+            PathOptimizationManager.loadDefaultTowers()
+            PathOptimizationManager.loadDefaultConfig()
             
             // 测试C++ A*算法
             try {
@@ -606,6 +646,7 @@ Item {
         // Restore global greenlands
         loadGreenlandsGlobal()
         loadWatersGlobal()
+        _pushRegionAttractorsToCpp()
         loadRoadsFromResource("qrc:/roads/export.geojson")
 
     }
@@ -676,7 +717,7 @@ Item {
             // Initial map position duplicates Fly view position
             Component.onCompleted: {
                 editorMap.center = QGroundControl.flightMapPosition
-                editorMap._dumpPossibleMapHandles()
+                //editorMap._dumpPossibleMapHandles()
             }
 
             QGCMapPalette { id: mapPal; lightColors: editorMap.isSatelliteMap }
@@ -1844,6 +1885,7 @@ Item {
                     }
                 }
             }
+
             // UI for splitting the current segment
             MapQuickItem {
                 id:             splitSegmentItem
@@ -2090,16 +2132,7 @@ Item {
             function _metersToLat(m) { return m / 111320.0 }
             function _metersToLon(m, lat) { return m / (111320.0 * Math.cos(lat * Math.PI / 180.0)) }
 
-            /*function _makeRectAround(center, halfWm, halfHm) {
-                var dLat = _metersToLat(halfHm)
-                var dLon = _metersToLon(halfWm, center.latitude)
-                return [
-                    QtPositioning.coordinate(center.latitude + dLat, center.longitude - dLon),
-                    QtPositioning.coordinate(center.latitude + dLat, center.longitude + dLon),
-                    QtPositioning.coordinate(center.latitude - dLat, center.longitude + dLon),
-                    QtPositioning.coordinate(center.latitude - dLat, center.longitude - dLon)
-                ]
-            }*/
+
             function _makeRectInView(pixelW, pixelH) {
                 // 用“当前视野中心”的屏幕像素点，生成一个像素宽高的矩形
                 var c = editorMap.center
@@ -2215,16 +2248,6 @@ Item {
                 var c1 = editorMap.toCoordinate(p1, false)
                 return { dLat: (c1.latitude - refCoord.latitude), dLon: (c1.longitude - refCoord.longitude) }
             }
-            /*function addGreenland() {
-                console.log("[Greenland] addGreenland clicked. before count=", greenlands.length, "editMode=", greenlandEditMode)
-                var center = editorMap.center
-                var rect = _makeRectAround(center, 35, 25) // 默认 70m x 50m
-                var obj = { id: greenlandNextId++, path: rect }
-                greenlands = greenlands.concat([obj])
-                selectedGreenlandId = obj.id
-                greenlandEditMode = true
-                console.log("[Greenland] after count=", greenlands.length, "selectedId=", selectedGreenlandId, "editMode=", greenlandEditMode)
-            }*/
 
             function addGreenland() {
                 var rect = _makeRectInView(240, 180)
@@ -2411,103 +2434,7 @@ Item {
             function exitWaterEditMode() {
                 waterEditMode = false
             }
-            // ----------- Render greenlands -----------
-
-            /*Repeater {
-                model: editorMap.greenlands
-
-                delegate: Item {
-                    id: greenDelegate
-
-                    property int gIndex: index
-                    property int gid: modelData.id
-                    property var path: modelData.path
-                    property bool selected: (editorMap.selectedGreenlandId === gid)
-
-                    MapPolygon {
-                        id: greenPoly
-                        path: greenDelegate.path
-                        color: greenDelegate.selected ? "#6600FF00" : "#4400FF00"
-                        border.color: greenDelegate.selected ? "#00FF66" : "#00CC00"
-                        border.width: 2
-                        z: 999999
-                    }
-
-                    MapQuickItem {
-                        id: centerItem
-                        coordinate: editorMap._pathCenter(greenDelegate.path)
-                        anchorPoint.x: 10
-                        anchorPoint.y: 10
-                        z: greenPoly.z + 1
-
-                        sourceItem: Rectangle {
-                            width: 20; height: 20; radius: 10
-                            color: greenDelegate.selected ? "#FF00FF66" : "#AA00CC00"
-                            border.width: 2
-                            border.color: "white"
-
-                            MouseArea {
-                                anchors.fill: parent
-                                preventStealing: true
-                                propagateComposedEvents: false
-                                onPressed: mouse.accepted = true
-                                onClicked: {
-                                    mouse.accepted = true
-                                    editorMap.selectedGreenlandId = greenDelegate.gid
-                                    editorMap.greenlandEditMode = true
-                                }
-                            }
-                        }
-                    }
-
-                    Repeater {
-                        model: (editorMap.greenlandEditMode && greenDelegate.selected) ? 4 : 0
-
-                        delegate: MapQuickItem {
-                            id: vHandle
-                            coordinate: greenDelegate.path[index]
-                            anchorPoint.x: 8
-                            anchorPoint.y: 8
-                            z: greenPoly.z + 2
-
-                            sourceItem: Rectangle {
-                                width: 16; height: 16; radius: 8
-                                color: "white"
-                                border.width: 2
-                                border.color: "#00FF00"
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    preventStealing: true
-                                    propagateComposedEvents: false
-                                    cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-
-                                    property point startMouse
-                                    property point startPx
-
-                                    onPressed: {
-                                        mouse.accepted = true
-                                        startMouse = Qt.point(mouse.x, mouse.y)
-                                        startPx = editorMap.fromCoordinate(vHandle.coordinate)
-                                    }
-
-                                    onPositionChanged: {
-                                        if (!pressed) return
-                                        mouse.accepted = true
-                                        var dx = mouse.x - startMouse.x
-                                        var dy = mouse.y - startMouse.y
-                                        var newPx = Qt.point(startPx.x + dx, startPx.y + dy)
-                                        var newCoord = editorMap.toCoordinate(newPx, false)
-                                        editorMap.updateGreenlandVertex(greenDelegate.gIndex, index, newCoord)
-                                    }
-
-                                    onReleased: mouse.accepted = true
-                                }
-                            }
-                        }
-                    }
-                }
-            }*/
+  
         }
 
         //-----------------------------------------------------------

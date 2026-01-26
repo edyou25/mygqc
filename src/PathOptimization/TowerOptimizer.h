@@ -16,7 +16,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QVector>
-
+#include <QVariant>
 Q_DECLARE_LOGGING_CATEGORY(TowerOptimizerLog)
 
 /// Tower location for signal strength optimization
@@ -130,6 +130,11 @@ public:
     
     // Signal strength calculation
     Q_INVOKABLE double calculateSignalStrength(const QGeoCoordinate& coord);
+
+    // Extra "attractor" points injected from QML (e.g. Greenland/Water centers)
+    // points: [ {lat: <double>, lon: <double>, name: <string>, type: <string>}, ... ]
+    Q_INVOKABLE void setAttractors(const QVariantList& points);
+    Q_INVOKABLE void clearAttractors();
     
     // Getters
     const QVector<TowerInfo>& towers() const { return _towers; }
@@ -179,7 +184,8 @@ private:
     QVector<TowerInfo> _towers;
     QVector<TowerInfo> _sensors;
     OptimizationConfig _config;
-    
+    QVector<TowerInfo> _extraAttractors;
+    double _extraAttractorScale = 0.3;   // 绿地/水体吸引力：真 tower 的 0.3 倍
     // Cache for optimization
     QHash<QString, double> _signalCache;
     QHash<QString, double> _heuristicCache;

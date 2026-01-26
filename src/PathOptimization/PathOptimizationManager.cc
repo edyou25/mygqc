@@ -34,6 +34,10 @@ bool PathOptimizationManager::loadDefaultConfig()
 {
     return _towerOptimizer.loadConfigFromJson(":/resources/TowerOptimize_config.json");
 }
+
+    
+
+
 void PathOptimizationManager::setDistanceWeight(double w)
 {
     // qFuzzyCompare：用于比较浮点数，避免 1.0000000 和 1.0000001 这种误差导致“无意义重复更新”

@@ -27,14 +27,14 @@
                     0,
                     0,
                     null,
-                    22.70824394537147,
-                    114.40842636884253,
+                    22.71375419,
+                    114.40285212,
                     50
                 ],
                 "type": "SimpleItem"
             },
             {
-                "AMSLAltAboveTerrain": null,
+                "AMSLAltAboveTerrain": 50,
                 "Altitude": 50,
                 "AltitudeMode": 1,
                 "autoContinue": true,
@@ -46,8 +46,8 @@
                     0,
                     0,
                     null,
-                    22.70698897039956,
-                    114.40727558765138,
+                    22.709778914172595,
+                    114.40293404431083,
                     50
                 ],
                 "type": "SimpleItem"
@@ -65,8 +65,8 @@
                     0,
                     0,
                     null,
-                    22.70728736066434,
-                    114.4048254256428,
+                    22.70685263041312,
+                    114.40394930838306,
                     50
                 ],
                 "type": "SimpleItem"
@@ -84,55 +84,17 @@
                     0,
                     0,
                     null,
-                    22.709187277991973,
-                    114.40372643951912,
-                    50
-                ],
-                "type": "SimpleItem"
-            },
-            {
-                "AMSLAltAboveTerrain": 50,
-                "Altitude": 50,
-                "AltitudeMode": 1,
-                "autoContinue": true,
-                "command": 16,
-                "doJumpId": 5,
-                "frame": 3,
-                "params": [
-                    0,
-                    0,
-                    0,
-                    null,
-                    22.71025830448488,
-                    114.40636058632435,
-                    50
-                ],
-                "type": "SimpleItem"
-            },
-            {
-                "AMSLAltAboveTerrain": 50,
-                "Altitude": 50,
-                "AltitudeMode": 1,
-                "autoContinue": true,
-                "command": 16,
-                "doJumpId": 6,
-                "frame": 3,
-                "params": [
-                    0,
-                    0,
-                    0,
-                    null,
-                    22.71196916089948,
-                    114.40691389405151,
+                    22.70522834,
+                    114.41089721,
                     50
                 ],
                 "type": "SimpleItem"
             }
         ],
         "plannedHomePosition": [
-            22.70824394537147,
-            114.40842636884253,
-            37
+            22.71375419,
+            114.40285212,
+            33
         ],
         "vehicleType": 2,
         "version": 2
