@@ -26,15 +26,18 @@ Rectangle {
     visible:            true
 
     property var missionController: null
-    property var comparisonData: ({ original: null, optimized: null })
+    property var comparisonData: ({ original: null, optimized: null, length: null, smooth: null })
     property var originalPathWaypoints: []
+    property var signalPathWaypoints: []
+    property var lengthPathWaypoints: []
+    property var smoothPathWaypoints: []
 
     // Layout tuning
     property real _barWidth: Math.max(18, ScreenTools.defaultFontPixelWidth * 2.5)
     property real _barMaxHeight: Math.max(72, ScreenTools.defaultFontPixelHeight * 5.5)
 
     onComparisonDataChanged: {
-        console.log('[TowerOptimize] comparisonData changed, original:', !!comparisonData.original, 'optimized:', !!comparisonData.optimized)
+        console.log('[TowerOptimize] comparisonData changed, original:', !!comparisonData.original, 'optimized:', !!comparisonData.optimized, 'length:', !!comparisonData.length, 'smooth:', !!comparisonData.smooth)
         if (contentColumn) {
             console.log('[TowerOptimize] Triggering Repeater refresh')
         }
@@ -70,8 +73,20 @@ Rectangle {
         if (missionController) {
             console.log('[TowerOptimize] Getting path comparison metrics...')
             console.log('[TowerOptimize] originalPathWaypoints from property:', originalPathWaypoints.length)
+            console.log('[TowerOptimize] signalPathWaypoints from property:', signalPathWaypoints.length)
+            console.log('[TowerOptimize] lengthPathWaypoints from property:', lengthPathWaypoints.length)
+            console.log('[TowerOptimize] smoothPathWaypoints from property:', smoothPathWaypoints.length)
 
-            if (originalPathWaypoints && originalPathWaypoints.length > 0) {
+            if (originalPathWaypoints && originalPathWaypoints.length > 0 &&
+                (signalPathWaypoints && signalPathWaypoints.length > 0)) {
+                console.log('[TowerOptimize] Using provided multi-path waypoints')
+                comparisonData = TowerOpt.getMultiPathComparisonMetrics(
+                    originalPathWaypoints,
+                    signalPathWaypoints,
+                    lengthPathWaypoints,
+                    smoothPathWaypoints
+                )
+            } else if (originalPathWaypoints && originalPathWaypoints.length > 0) {
                 console.log('[TowerOptimize] Using originalPathWaypoints from QML property')
                 comparisonData = TowerOpt.getPathComparisonMetricsWithOriginal(missionController, originalPathWaypoints)
             } else {
@@ -82,6 +97,8 @@ Rectangle {
             console.log('[TowerOptimize] Comparison data received:')
             console.log('[TowerOptimize]   - original:', !!comparisonData.original)
             console.log('[TowerOptimize]   - optimized:', !!comparisonData.optimized)
+            if (comparisonData.length === undefined) comparisonData.length = null
+            if (comparisonData.smooth === undefined) comparisonData.smooth = null
 
             if (comparisonData.original) {
                 console.log('[TowerOptimize]   - original obstacleMinDistance:', comparisonData.original.obstacleMinDistance)
@@ -109,17 +126,45 @@ Rectangle {
                 console.warn('[TowerOptimize]   - optimized data is null!')
             }
 
+            if (comparisonData.length) {
+                console.log('[TowerOptimize]   - length obstacleMinDistance:', comparisonData.length.obstacleMinDistance)
+                console.log('[TowerOptimize]   - length obstacleAvgDistance:', comparisonData.length.obstacleAvgDistance)
+                console.log('[TowerOptimize]   - length signalAvg:', comparisonData.length.signalAvg)
+                console.log('[TowerOptimize]   - length signalMin:', comparisonData.length.signalMin)
+                console.log('[TowerOptimize]   - length signalMax:', comparisonData.length.signalMax)
+                console.log('[TowerOptimize]   - length energyIndex (pathLength):', comparisonData.length.pathLength)
+                console.log('[TowerOptimize]   - length pathSmoothness:', comparisonData.length.pathSmoothness)
+                console.log('[TowerOptimize]   - length overscore:', comparisonData.length.overscore)
+            } else {
+                console.warn('[TowerOptimize]   - length data is null!')
+            }
+
+            if (comparisonData.smooth) {
+                console.log('[TowerOptimize]   - smooth obstacleMinDistance:', comparisonData.smooth.obstacleMinDistance)
+                console.log('[TowerOptimize]   - smooth obstacleAvgDistance:', comparisonData.smooth.obstacleAvgDistance)
+                console.log('[TowerOptimize]   - smooth signalAvg:', comparisonData.smooth.signalAvg)
+                console.log('[TowerOptimize]   - smooth signalMin:', comparisonData.smooth.signalMin)
+                console.log('[TowerOptimize]   - smooth signalMax:', comparisonData.smooth.signalMax)
+                console.log('[TowerOptimize]   - smooth energyIndex (pathLength):', comparisonData.smooth.pathLength)
+                console.log('[TowerOptimize]   - smooth pathSmoothness:', comparisonData.smooth.pathSmoothness)
+                console.log('[TowerOptimize]   - smooth overscore:', comparisonData.smooth.overscore)
+            } else {
+                console.warn('[TowerOptimize]   - smooth data is null!')
+            }
+
             updateChart()
             console.log('[TowerOptimize] Chart updated')
 
             // Force UI update
             var tempData = comparisonData
-            comparisonData = ({ original: null, optimized: null })
+            comparisonData = ({ original: null, optimized: null, length: null, smooth: null })
             Qt.callLater(function() {
                 comparisonData = tempData
                 console.log('[TowerOptimize] comparisonData reassigned to trigger UI update')
                 console.log('[TowerOptimize]   - original after reassign:', !!comparisonData.original)
                 console.log('[TowerOptimize]   - optimized after reassign:', !!comparisonData.optimized)
+                console.log('[TowerOptimize]   - length after reassign:', !!comparisonData.length)
+                console.log('[TowerOptimize]   - smooth after reassign:', !!comparisonData.smooth)
             })
         } else {
             console.warn('[TowerOptimize] No missionController available, cannot refresh')
@@ -166,7 +211,7 @@ Rectangle {
                     console.log('[TowerOptimize]   - scrollView.viewport:', !!scrollView.viewport)
                 }
 
-                // Legend row for the two bar columns (vertical bars)
+                // Legend row for the bar columns (vertical bars)
                 RowLayout {
                     width: parent.width
                     spacing: ScreenTools.defaultFontPixelWidth
@@ -193,9 +238,39 @@ Rectangle {
                     }
 
                     QGCLabel {
-                        text: "Optimized"
+                        text: "Signal"
                         font.pointSize: ScreenTools.defaultFontPointSize * 0.8
                         opacity: 0.8
+                    }
+
+                    Rectangle {
+                        width: ScreenTools.defaultFontPixelWidth * 1.2
+                        height: width
+                        radius: 2
+                        color: "#f2a900"
+                        visible: comparisonPanel.comparisonData.length !== null && comparisonPanel.comparisonData.length !== undefined
+                    }
+
+                    QGCLabel {
+                        text: "Shorter"
+                        font.pointSize: ScreenTools.defaultFontPointSize * 0.8
+                        opacity: 0.8
+                        visible: comparisonPanel.comparisonData.length !== null && comparisonPanel.comparisonData.length !== undefined
+                    }
+
+                    Rectangle {
+                        width: ScreenTools.defaultFontPixelWidth * 1.2
+                        height: width
+                        radius: 2
+                        color: "#2fb66c"
+                        visible: comparisonPanel.comparisonData.smooth !== null && comparisonPanel.comparisonData.smooth !== undefined
+                    }
+
+                    QGCLabel {
+                        text: "Smoother"
+                        font.pointSize: ScreenTools.defaultFontPointSize * 0.8
+                        opacity: 0.8
+                        visible: comparisonPanel.comparisonData.smooth !== null && comparisonPanel.comparisonData.smooth !== undefined
                     }
 
                     Item { Layout.fillWidth: true }
@@ -232,18 +307,28 @@ Rectangle {
 
                             property real   originalValue:  comparisonPanel.comparisonData.original ? (comparisonPanel.comparisonData.original[modelData.key] || 0) : 0
                             property real   optimizedValue: comparisonPanel.comparisonData.optimized ? (comparisonPanel.comparisonData.optimized[modelData.key] || 0) : 0
+                            property real   lengthValue: comparisonPanel.comparisonData.length ? (comparisonPanel.comparisonData.length[modelData.key] || 0) : 0
+                            property real   smoothValue: comparisonPanel.comparisonData.smooth ? (comparisonPanel.comparisonData.smooth[modelData.key] || 0) : 0
+                            property bool   showLength: comparisonPanel.comparisonData.length !== null && comparisonPanel.comparisonData.length !== undefined
+                            property bool   showSmooth: comparisonPanel.comparisonData.smooth !== null && comparisonPanel.comparisonData.smooth !== undefined
 
                             Connections {
                                 target: comparisonPanel
                                 function onComparisonDataChanged() {
                                     if (metricLoader.item) {
                                         var newOriginal = comparisonPanel.comparisonData.original ? (comparisonPanel.comparisonData.original[modelData.key] || 0) : 0
-                                        var newOptimized = comparisonPanel.comparisonData.optimized ? (comparisonPanel.comparisonData.optimized[modelData.key] || 0) : 0
-                                        if (index === 0) {
-                                            console.log('[TowerOptimize] ComparisonData changed for', modelData.key, 'original:', newOriginal, 'optimized:', newOptimized)
-                                        }
+                                    var newOptimized = comparisonPanel.comparisonData.optimized ? (comparisonPanel.comparisonData.optimized[modelData.key] || 0) : 0
+                                    var newLength = comparisonPanel.comparisonData.length ? (comparisonPanel.comparisonData.length[modelData.key] || 0) : 0
+                                    var newSmooth = comparisonPanel.comparisonData.smooth ? (comparisonPanel.comparisonData.smooth[modelData.key] || 0) : 0
+                                    if (index === 0) {
+                                        console.log('[TowerOptimize] ComparisonData changed for', modelData.key, 'original:', newOriginal, 'optimized:', newOptimized, 'length:', newLength, 'smooth:', newSmooth)
+                                    }
                                         metricLoader.item.originalValue = newOriginal
                                         metricLoader.item.optimizedValue = newOptimized
+                                        metricLoader.item.lengthValue = newLength
+                                        metricLoader.item.smoothValue = newSmooth
+                                        metricLoader.item.showLength = comparisonPanel.comparisonData.length !== null && comparisonPanel.comparisonData.length !== undefined
+                                        metricLoader.item.showSmooth = comparisonPanel.comparisonData.smooth !== null && comparisonPanel.comparisonData.smooth !== undefined
                                         metricLoader.item.higherBetter = modelData.higherBetter
                                     }
                                 }
@@ -253,9 +338,11 @@ Rectangle {
                                 if (index === 0) {
                                     console.log('[TowerOptimize] MetricItem Loader created for', modelData.name)
                                     console.log('[TowerOptimize]   - originalValue:', originalValue)
-                                    console.log('[TowerOptimize]   - optimizedValue:', optimizedValue)
-                                }
+                                console.log('[TowerOptimize]   - optimizedValue:', optimizedValue)
+                                console.log('[TowerOptimize]   - lengthValue:', lengthValue)
+                                console.log('[TowerOptimize]   - smoothValue:', smoothValue)
                             }
+                        }
 
                             onItemChanged: {
                                 if (item) {
@@ -263,14 +350,18 @@ Rectangle {
                                     item.metricKey = metricKey
                                     item.unit = unit
                                     item.format = format
-                                    item.higherBetter = higherBetter
-                                    item.originalValue = originalValue
-                                    item.optimizedValue = optimizedValue
-                                    if (index === 0) {
-                                        console.log('[TowerOptimize] MetricItem Loader item set, originalValue:', originalValue, 'optimizedValue:', optimizedValue)
-                                    }
-                                }
+                            item.higherBetter = higherBetter
+                            item.originalValue = originalValue
+                            item.optimizedValue = optimizedValue
+                            item.lengthValue = lengthValue
+                            item.smoothValue = smoothValue
+                            item.showLength = showLength
+                            item.showSmooth = showSmooth
+                            if (index === 0) {
+                                console.log('[TowerOptimize] MetricItem Loader item set, originalValue:', originalValue, 'optimizedValue:', optimizedValue, 'lengthValue:', lengthValue, 'smoothValue:', smoothValue)
                             }
+                        }
+                    }
                         }
                     }
                 }
@@ -320,8 +411,22 @@ Rectangle {
 
                                 QGCLabel {
                                     text:           comparisonPanel.comparisonData.optimized ?
-                                                   ("Optimized points: " + (comparisonPanel.comparisonData.optimized.signalDistribution ? comparisonPanel.comparisonData.optimized.signalDistribution.length : 0)) :
-                                                   "No optimized data"
+                                                   ("Signal points: " + (comparisonPanel.comparisonData.optimized.signalDistribution ? comparisonPanel.comparisonData.optimized.signalDistribution.length : 0)) :
+                                                   "No signal data"
+                                    font.pointSize: ScreenTools.defaultFontPointSize * 0.7
+                                }
+
+                                QGCLabel {
+                                    text:           comparisonPanel.comparisonData.length ?
+                                                   ("Shorter points: " + (comparisonPanel.comparisonData.length.signalDistribution ? comparisonPanel.comparisonData.length.signalDistribution.length : 0)) :
+                                                   "No shorter data"
+                                    font.pointSize: ScreenTools.defaultFontPointSize * 0.7
+                                }
+
+                                QGCLabel {
+                                    text:           comparisonPanel.comparisonData.smooth ?
+                                                   ("Smoother points: " + (comparisonPanel.comparisonData.smooth.signalDistribution ? comparisonPanel.comparisonData.smooth.signalDistribution.length : 0)) :
+                                                   "No smoother data"
                                     font.pointSize: ScreenTools.defaultFontPointSize * 0.7
                                 }
                             }
@@ -351,7 +456,7 @@ Rectangle {
         console.log('[TowerOptimize] updateChart called (placeholder mode)')
     }
 
-    // Metric comparison item component (vertical bars, two columns: Original / Optimized)
+    // Metric comparison item component (vertical bars, columns: Original / Signal / Shorter / Smoother)
     // Visual rule:
     // - If optimized is better (delta > 0), exaggerate the separation between the two bars.
     // - If optimized is worse (delta < 0), compress the separation (make it less obvious).
@@ -366,8 +471,12 @@ Rectangle {
             property bool   higherBetter:   true
             property real   originalValue:  0
             property real   optimizedValue: 0
+            property real   lengthValue:    0
+            property real   smoothValue:    0
+            property bool   showLength:     true
+            property bool   showSmooth:     true
 
-            width:  Math.max(ScreenTools.defaultFontPixelWidth * 10, comparisonPanel._barWidth * 2 + ScreenTools.defaultFontPixelWidth * 2)
+            width:  Math.max(ScreenTools.defaultFontPixelWidth * 14, comparisonPanel._barWidth * 4 + ScreenTools.defaultFontPixelWidth * 3)
             height: comparisonPanel._barMaxHeight + ScreenTools.defaultFontPixelHeight * 2.2
 
             function _fmt(v) {
@@ -375,33 +484,39 @@ Rectangle {
                 return v.toFixed(decimals) + (unit ? " " + unit : "")
             }
 
-            // Stable tanh (avoid relying on Math.tanh in older engines)
-            function _tanh(x) {
-                var e2x = Math.exp(2 * x)
-                return (e2x - 1) / (e2x + 1)
+            function _normalizedValue(value, minVal, maxVal) {
+                var denom = maxVal - minVal
+                if (denom <= 1e-9) return 0.5
+                return (value - minVal) / denom
             }
 
-            // Signed deltaPercent: positive => optimized is better
-            function _deltaPercent() {
-                var o = Number(originalValue || 0)
-                var p = Number(optimizedValue || 0)
-                var denom = Math.max(Math.abs(o), Math.abs(p), 1e-6)
-                var raw = (p - o) / denom
-                return higherBetter ? raw : -raw
+            function _barFrac(value, values) {
+                var minVal = values[0]
+                var maxVal = values[0]
+                for (var i = 1; i < values.length; i++) {
+                    minVal = Math.min(minVal, values[i])
+                    maxVal = Math.max(maxVal, values[i])
+                }
+                var adjusted = value
+                if (!higherBetter) {
+                    adjusted = maxVal + minVal - value
+                }
+                var norm = _normalizedValue(adjusted, minVal, maxVal)
+                return Math.max(0.05, Math.min(0.95, norm))
             }
 
-            function _strength(dp) {
-                return 1 - Math.exp(-Math.abs(dp))
+            function _activeValues() {
+                var vals = [Number(originalValue || 0), Number(optimizedValue || 0)]
+                if (showLength) vals.push(Number(lengthValue || 0))
+                if (showSmooth) vals.push(Number(smoothValue || 0))
+                return vals
             }
 
-            property real _dp: _deltaPercent()            // >0 => optimized better
-            property real _d:  _tanh(_dp * 2.0)          // [-1, 1]
-            property real _s:  _strength(_dp)            // [0, 1)
-            property real _contrast: (_dp > 0) ? (1.0 + 0.9 * _s) : (1.0 - 0.7 * _s)
-
-            // Fractions centered around 0.5; contrast controls exaggeration/compression
-            property real _origFrac: Math.max(0.05, Math.min(0.95, 0.5 - 0.5 * _contrast * _d))
-            property real _optFrac:  Math.max(0.05, Math.min(0.95, 0.5 + 0.5 * _contrast * _d))
+            property var _activeVals: _activeValues()
+            property real _origFrac: _barFrac(Number(originalValue || 0), _activeVals)
+            property real _optFrac:  _barFrac(Number(optimizedValue || 0), _activeVals)
+            property real _lenFrac:  showLength ? _barFrac(Number(lengthValue || 0), _activeVals) : 0
+            property real _smoFrac:  showSmooth ? _barFrac(Number(smoothValue || 0), _activeVals) : 0
 
             Rectangle {
                 anchors.fill: parent
@@ -427,7 +542,8 @@ Rectangle {
                         // Original column (vertical bar)
                         Item {
                             Layout.fillHeight: true
-                            Layout.preferredWidth: comparisonPanel._barWidth
+                            Layout.preferredWidth: showLength ? comparisonPanel._barWidth : 0
+                            visible: showLength
 
                             Rectangle {
                                 id: originalBg
@@ -456,10 +572,11 @@ Rectangle {
                             }
                         }
 
-                        // Optimized column (vertical bar)
+                        // Signal column (vertical bar)
                         Item {
                             Layout.fillHeight: true
-                            Layout.preferredWidth: comparisonPanel._barWidth
+                            Layout.preferredWidth: showSmooth ? comparisonPanel._barWidth : 0
+                            visible: showSmooth
 
                             Rectangle {
                                 id: optimizedBg
@@ -484,6 +601,70 @@ Rectangle {
                                     font.pointSize: ScreenTools.defaultFontPointSize * 0.75
                                     font.bold: true
                                     color: (optimizedFill.height > parent.height * 0.55) ? "white" : qgcPal.text
+                                }
+                            }
+                        }
+
+                        // Shorter column (vertical bar)
+                        Item {
+                            Layout.fillHeight: true
+                            Layout.preferredWidth: comparisonPanel._barWidth
+
+                            Rectangle {
+                                id: lengthBg
+                                anchors.fill: parent
+                                radius: 2
+                                color: qgcPal.window
+                                border.width: 1
+                                border.color: qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.12) : Qt.rgba(1,1,1,0.12)
+
+                                Rectangle {
+                                    id: lengthFill
+                                    width: parent.width
+                                    height: parent.height * _lenFrac
+                                    anchors.bottom: parent.bottom
+                                    radius: 2
+                                    color: "#f2a900"
+                                }
+
+                                QGCLabel {
+                                    anchors.centerIn: parent
+                                    text: _fmt(lengthValue)
+                                    font.pointSize: ScreenTools.defaultFontPointSize * 0.75
+                                    font.bold: true
+                                    color: (lengthFill.height > parent.height * 0.55) ? "white" : qgcPal.text
+                                }
+                            }
+                        }
+
+                        // Smoother column (vertical bar)
+                        Item {
+                            Layout.fillHeight: true
+                            Layout.preferredWidth: comparisonPanel._barWidth
+
+                            Rectangle {
+                                id: smoothBg
+                                anchors.fill: parent
+                                radius: 2
+                                color: qgcPal.window
+                                border.width: 1
+                                border.color: qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.12) : Qt.rgba(1,1,1,0.12)
+
+                                Rectangle {
+                                    id: smoothFill
+                                    width: parent.width
+                                    height: parent.height * _smoFrac
+                                    anchors.bottom: parent.bottom
+                                    radius: 2
+                                    color: "#2fb66c"
+                                }
+
+                                QGCLabel {
+                                    anchors.centerIn: parent
+                                    text: _fmt(smoothValue)
+                                    font.pointSize: ScreenTools.defaultFontPointSize * 0.75
+                                    font.bold: true
+                                    color: (smoothFill.height > parent.height * 0.55) ? "white" : qgcPal.text
                                 }
                             }
                         }

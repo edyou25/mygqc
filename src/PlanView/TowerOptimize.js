@@ -109,6 +109,98 @@ function getConfig(section, key, defaultValue) {
     return defaultValue
 }
 
+function _cloneCoordinate(coord) {
+    if (!coord) return Pos.QtPositioning.coordinate()
+    var lat = (typeof coord.latitude === 'function') ? coord.latitude() : coord.latitude
+    var lon = (typeof coord.longitude === 'function') ? coord.longitude() : coord.longitude
+    var alt = (typeof coord.altitude === 'function') ? coord.altitude() : coord.altitude
+    if (typeof lat !== 'number' || typeof lon !== 'number') return Pos.QtPositioning.coordinate()
+    return Pos.QtPositioning.coordinate(lat, lon, (typeof alt === 'number') ? alt : 0)
+}
+
+function _clonePath(path) {
+    var out = []
+    if (!path) return out
+    for (var i = 0; i < path.length; i++) {
+        out.push(_cloneCoordinate(path[i]))
+    }
+    return out
+}
+
+function _extractMissionPath(missionController) {
+    var path = []
+    if (!missionController || !missionController.visualItems) return path
+    var visualItems = missionController.visualItems
+    for (var i = 1; i < visualItems.count; i++) {
+        var item = visualItems.get(i)
+        if (item && item.coordinate && item.coordinate.isValid) {
+            path.push(_cloneCoordinate(item.coordinate))
+        }
+    }
+    return path
+}
+
+function _applyMissionPath(missionController, path) {
+    if (!missionController || !missionController.visualItems) return
+    if (!path || path.length === 0) return
+    var visualItems = missionController.visualItems
+    var pathIndex = 0
+    for (var i = 1; i < visualItems.count; i++) {
+        var item = visualItems.get(i)
+        if (!item || !item.coordinate || !item.coordinate.isValid) continue
+        if (pathIndex >= path.length) break
+        item.coordinate = _cloneCoordinate(path[pathIndex])
+        if (item.dirty !== undefined) item.dirty = true
+        pathIndex++
+    }
+}
+
+function _straightenPath(path, strength) {
+    if (!path || path.length < 3) return _clonePath(path)
+    var result = []
+    result.push(_cloneCoordinate(path[0]))
+    for (var i = 1; i < path.length - 1; i++) {
+        var prev = path[i - 1]
+        var curr = path[i]
+        var next = path[i + 1]
+        var targetLat = (prev.latitude + next.latitude) / 2
+        var targetLon = (prev.longitude + next.longitude) / 2
+        var targetAlt = (prev.altitude + next.altitude) / 2
+        var newLat = curr.latitude + (targetLat - curr.latitude) * strength
+        var newLon = curr.longitude + (targetLon - curr.longitude) * strength
+        var newAlt = curr.altitude + (targetAlt - curr.altitude) * strength
+        result.push(Pos.QtPositioning.coordinate(newLat, newLon, newAlt))
+    }
+    result.push(_cloneCoordinate(path[path.length - 1]))
+    return result
+}
+
+function _smoothPath(path, iterations, alpha) {
+    if (!path || path.length < 3) return _clonePath(path)
+    var result = _clonePath(path)
+    var iterCount = iterations || 1
+    var weight = (alpha !== undefined) ? alpha : 0.4
+    for (var iter = 0; iter < iterCount; iter++) {
+        var next = []
+        next.push(_cloneCoordinate(result[0]))
+        for (var i = 1; i < result.length - 1; i++) {
+            var prev = result[i - 1]
+            var curr = result[i]
+            var nxt = result[i + 1]
+            var targetLat = (prev.latitude + nxt.latitude) / 2
+            var targetLon = (prev.longitude + nxt.longitude) / 2
+            var targetAlt = (prev.altitude + nxt.altitude) / 2
+            var newLat = curr.latitude + (targetLat - curr.latitude) * weight
+            var newLon = curr.longitude + (targetLon - curr.longitude) * weight
+            var newAlt = curr.altitude + (targetAlt - curr.altitude) * weight
+            next.push(Pos.QtPositioning.coordinate(newLat, newLon, newAlt))
+        }
+        next.push(_cloneCoordinate(result[result.length - 1]))
+        result = next
+    }
+    return result
+}
+
 // -------------------- Towers / Sensors --------------------
 
 function loadTowers(resourceUrl) {
@@ -506,6 +598,21 @@ function calculatePathMetrics(waypoints) {
     return metrics
 }
 
+function getMultiPathComparisonMetrics(originalPath, signalPath, lengthPath, smoothPath) {
+    console.log('[TowerOptimize] ===== getMultiPathComparisonMetrics called =====')
+    if (!towers.length) {
+        console.warn('[TowerOptimize] Towers not loaded in getMultiPathComparisonMetrics, attempting to load...')
+        loadTowers()
+    }
+
+    return {
+        original: originalPath && originalPath.length ? calculatePathMetrics(originalPath) : null,
+        optimized: signalPath && signalPath.length ? calculatePathMetrics(signalPath) : null,
+        length: lengthPath && lengthPath.length ? calculatePathMetrics(lengthPath) : null,
+        smooth: smoothPath && smoothPath.length ? calculatePathMetrics(smoothPath) : null
+    }
+}
+
 // Comparison metrics with explicit original waypoints
 function getPathComparisonMetricsWithOriginal(missionController, originalWaypoints) {
     console.log('[TowerOptimize] ===== getPathComparisonMetricsWithOriginal called =====')
@@ -668,7 +775,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     }
 
     clearDebugSearchTrees()
-    options = options || {}
+    options = (typeof options === 'object' && options) ? options : {}
 
     // Save original waypoints (for comparison)
     originalPathWaypoints = []
@@ -1093,36 +1200,40 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         }
     }
 
-    // Merge close waypoints (unchanged)
-    var toRemove = []
-    for (var mi = 1; mi < visualItems.count - 1; mi++) {
-        var currItem = visualItems.get(mi)
-        var nextItem2 = visualItems.get(mi + 1)
-        if (!currItem || !nextItem2) continue
-        if (!currItem.coordinate || !nextItem2.coordinate) continue
+    if (!options.skipMerge) {
+        // Merge close waypoints (unchanged)
+        var toRemove = []
+        for (var mi = 1; mi < visualItems.count - 1; mi++) {
+            var currItem = visualItems.get(mi)
+            var nextItem2 = visualItems.get(mi + 1)
+            if (!currItem || !nextItem2) continue
+            if (!currItem.coordinate || !nextItem2.coordinate) continue
 
-        if (!currItem.specifiesCoordinate || currItem.isStandaloneCoordinate || !currItem.isSimpleItem || currItem.isTakeoffItem || currItem.isLandCommand) {
-            continue
+            if (!currItem.specifiesCoordinate || currItem.isStandaloneCoordinate || !currItem.isSimpleItem || currItem.isTakeoffItem || currItem.isLandCommand) {
+                continue
+            }
+            if (!nextItem2.specifiesCoordinate || nextItem2.isStandaloneCoordinate || !nextItem2.isSimpleItem || nextItem2.isTakeoffItem || nextItem2.isLandCommand) {
+                continue
+            }
+
+            if (currItem._collisionMoved || nextItem2._collisionMoved) continue
+
+            var dist = distanceMetersLocal(currItem.coordinate.latitude, currItem.coordinate.longitude,
+                                           nextItem2.coordinate.latitude, nextItem2.coordinate.longitude)
+            if (dist < 80) {
+                toRemove.push(mi)
+            }
         }
-        if (!nextItem2.specifiesCoordinate || nextItem2.isStandaloneCoordinate || !nextItem2.isSimpleItem || nextItem2.isTakeoffItem || nextItem2.isLandCommand) {
-            continue
-        }
 
-        if (currItem._collisionMoved || nextItem2._collisionMoved) continue
-
-        var dist = distanceMetersLocal(currItem.coordinate.latitude, currItem.coordinate.longitude,
-                                       nextItem2.coordinate.latitude, nextItem2.coordinate.longitude)
-        if (dist < 80) {
-            toRemove.push(mi)
+        for (var di = toRemove.length - 1; di >= 0; di--) {
+            missionController.removeVisualItem(toRemove[di])
         }
     }
 
-    for (var di = toRemove.length - 1; di >= 0; di--) {
-        missionController.removeVisualItem(toRemove[di])
+    if (!options.skipFixSegments) {
+        // Fix segment collisions (your existing logic below)
+        checkAndFixPathSegments(missionController)
     }
-
-    // Fix segment collisions (your existing logic below)
-    checkAndFixPathSegments(missionController)
 
     if (planMasterController) planMasterController.dirty = true
     console.info('[TowerOptimize] optimizeMissionAStar applied')
@@ -1131,6 +1242,82 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         console.error('[TowerOptimize] ERROR: originalPathWaypoints is empty after optimization!')
     } else {
         console.log('[TowerOptimize] ✓ originalPathWaypoints preserved with', originalPathWaypoints.length, 'waypoints')
+    }
+}
+
+// Generate 3 path variants: signal, shorter, smoother (default apply signal)
+function generateMultiPathPlans(missionController, planMasterController, options) {
+    console.log('[TowerOptimize] ===== generateMultiPathPlans called =====')
+    if (!missionController || !missionController.visualItems) {
+        console.warn('[TowerOptimize] generateMultiPathPlans: No missionController or visualItems')
+        return null
+    }
+
+    if (!towers.length) {
+        console.warn('[TowerOptimize] Towers not loaded in generateMultiPathPlans, attempting to load...')
+        loadTowers()
+    }
+
+    var basePath = _extractMissionPath(missionController)
+    if (!basePath || basePath.length < 2) {
+        console.warn('[TowerOptimize] generateMultiPathPlans: Not enough waypoints')
+        return null
+    }
+
+    originalPathWaypoints = _clonePath(basePath)
+    _cacheOriginalWaypoints()
+
+    var baseWeightDeviation = getConfig('astar', 'weightDeviation', 0.25)
+    var baseWeightSignal = getConfig('astar', 'weightSignal', 18000)
+
+    var baseOptions = (typeof options === 'object' && options) ? options : {}
+    function buildOptions(overrides) {
+        var out = {}
+        for (var k in baseOptions) out[k] = baseOptions[k]
+        for (var ok in overrides) out[ok] = overrides[ok]
+        out.skipMerge = true
+        out.skipFixSegments = true
+        return out
+    }
+
+    var signalOptions = buildOptions({
+        weightDeviation: baseWeightDeviation * 0.7,
+        weightSignal: baseWeightSignal * 1.5
+    })
+
+    var lengthOptions = buildOptions({
+        weightDeviation: baseWeightDeviation * 1.8,
+        weightSignal: baseWeightSignal * 0.6
+    })
+
+    var smoothOptions = buildOptions({
+        weightDeviation: baseWeightDeviation * 1.2,
+        weightSignal: baseWeightSignal * 0.9
+    })
+
+    function runVariant(variantOptions, postProcess) {
+        _applyMissionPath(missionController, basePath)
+        optimizeMissionAStar(missionController, planMasterController, variantOptions)
+        var path = _extractMissionPath(missionController)
+        if (postProcess) path = postProcess(path)
+        return path
+    }
+
+    var signalPath = runVariant(signalOptions, null)
+    var lengthPath = runVariant(lengthOptions, function(path) { return _straightenPath(path, 0.55) })
+    var smoothPath = runVariant(smoothOptions, function(path) { return _smoothPath(path, 2, 0.35) })
+
+    _applyMissionPath(missionController, signalPath)
+    checkAndFixPathSegments(missionController)
+
+    if (planMasterController) planMasterController.dirty = true
+
+    console.log('[TowerOptimize] generateMultiPathPlans completed')
+    return {
+        original: _clonePath(basePath),
+        signal: _clonePath(signalPath),
+        length: _clonePath(lengthPath),
+        smooth: _clonePath(smoothPath)
     }
 }
 

@@ -31,6 +31,9 @@ Item {
 
     property bool planControlColapsed: false
     property var originalPathForDisplay: []  // 用于存储原始路径，触发QML更新
+    property var signalPathForDisplay: []    // 信号优先路径（对比用）
+    property var lengthPathForDisplay: []    // 长度更短路径（显示）
+    property var smoothPathForDisplay: []    // 更平滑路径（显示）
 
     readonly property int   _decimalPlaces:             8
     readonly property real  _margin:                    ScreenTools.defaultFontPixelHeight * 0.5
@@ -484,6 +487,26 @@ Item {
                 z:                  QGroundControl.zOrderWaypointLines - 1  // 在优化路径下方
                 opacity:            _editingLayer == _layerMission && originalPathForDisplay.length > 0 ? 0.8 : 0  // 提高不透明度
                 path:               originalPathForDisplay
+            }
+
+            // 显示长度更短路径
+            MapPolyline {
+                id:                 lengthPathPolyline
+                line.width:         3
+                line.color:         '#f2a900'
+                z:                  QGroundControl.zOrderWaypointLines - 2
+                opacity:            _editingLayer == _layerMission && lengthPathForDisplay.length > 0 ? 0.7 : 0
+                path:               lengthPathForDisplay
+            }
+
+            // 显示更平滑路径
+            MapPolyline {
+                id:                 smoothPathPolyline
+                line.width:         3
+                line.color:         '#2fb66c'
+                z:                  QGroundControl.zOrderWaypointLines - 2
+                opacity:            _editingLayer == _layerMission && smoothPathForDisplay.length > 0 ? 0.7 : 0
+                path:               smoothPathForDisplay
             }
 
             // Direction arrows in waypoint lines
@@ -942,7 +965,7 @@ Item {
             anchors.rightMargin: _toolsMargin
             anchors.top:        parent.top
             anchors.bottom:     parent.bottom
-            width:              400
+            width:              620
             visible:            _editingLayer == _layerMission && item !== null
             
             active:             true  // 确保Loader是活动的
@@ -1278,24 +1301,32 @@ Item {
                     console.log('[TowerOptimize] _planMasterController:', !!_planMasterController)
                     console.log('[TowerOptimize] visualItems.count:', _missionController ? _missionController.visualItems.count : 0)
                     
-                    // 在优化前先获取原始路径点（如果还没有保存的话）
-                    var originalBefore = TowerOpt.getOriginalPathWaypoints() || []
-                    console.log('[TowerOptimize] Original path waypoints before optimization:', originalBefore.length)
-                    
-                    // 执行优化
-                    console.log('[TowerOptimize] Calling optimizeMissionAStar...')
+                    // 生成三条路径（信号/更短/更平滑），默认使用信号路径
+                    console.log('[TowerOptimize] Calling generateMultiPathPlans...')
                     try {
-                        TowerOpt.optimizeMissionAStar(_missionController, _planMasterController, 0.2)
-                        console.log('[TowerOptimize] optimizeMissionAStar returned successfully')
+                        var multiResult = TowerOpt.generateMultiPathPlans(_missionController, _planMasterController, {})
+                        if (multiResult) {
+                            originalPathForDisplay = multiResult.original || []
+                            signalPathForDisplay = multiResult.signal || []
+                            lengthPathForDisplay = multiResult.length || []
+                            smoothPathForDisplay = multiResult.smooth || []
+                            console.log('[TowerOptimize] Multi-path generation ok:', {
+                                original: originalPathForDisplay.length,
+                                signal: signalPathForDisplay.length,
+                                length: lengthPathForDisplay.length,
+                                smooth: smoothPathForDisplay.length
+                            })
+                        } else {
+                            console.warn('[TowerOptimize] generateMultiPathPlans returned null')
+                            originalPathForDisplay = []
+                            signalPathForDisplay = []
+                            lengthPathForDisplay = []
+                            smoothPathForDisplay = []
+                        }
                     } catch(e) {
-                        console.error('[TowerOptimize] optimizeMissionAStar threw error:', e.toString())
+                        console.error('[TowerOptimize] generateMultiPathPlans threw error:', e.toString())
                     }
-                    console.log('[TowerOptimize] A* Optimization completed')
-                    
-                    // 更新原始路径显示
-                    originalPathForDisplay = TowerOpt.getOriginalPathWaypoints() || []
-                    console.log('[TowerOptimize] Original path waypoints after optimization:', originalPathForDisplay.length)
-                    console.log('[TowerOptimize] originalPathForDisplay:', originalPathForDisplay)
+                    console.log('[TowerOptimize] Multi-path optimization completed')
                     
                     // 延迟刷新对比面板，确保数据已准备好
                     Qt.callLater(function() {
@@ -1305,6 +1336,9 @@ Item {
                         if (comparisonPanelLoader.item) {
                             // 将原始路径点传递给对比面板
                             comparisonPanelLoader.item.originalPathWaypoints = originalPathForDisplay
+                            comparisonPanelLoader.item.signalPathWaypoints = signalPathForDisplay
+                            comparisonPanelLoader.item.lengthPathWaypoints = lengthPathForDisplay
+                            comparisonPanelLoader.item.smoothPathWaypoints = smoothPathForDisplay
                             console.log('[TowerOptimize] Set originalPathWaypoints on comparison panel:', originalPathForDisplay.length)
                             console.log('[TowerOptimize] Calling refresh on comparison panel (A*)')
                             comparisonPanelLoader.item.refresh()
