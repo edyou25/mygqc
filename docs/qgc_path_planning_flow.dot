@@ -1,0 +1,65 @@
+digraph QGC_Path_Planning {
+  graph [rankdir=LR, fontname="Helvetica", bgcolor="white", splines=true, nodesep=0.4, ranksep=0.6];
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fillcolor="#F7F7F7", color="#333333"];
+  edge [fontname="Helvetica", fontsize=10, color="#555555"];
+
+  subgraph cluster_inputs {
+    label="Inputs";
+    color="#BBBBBB";
+    style="rounded";
+
+    raw_wp [label="Raw Waypoints\n(原始航迹点)"];
+    env_info [label="Environment Info\n地形 / 信号强度 / 临时禁飞\n(恶劣天气、空域管制)\n长期禁飞(建筑物等)\n水体(无法降落)"];
+  }
+
+  subgraph cluster_costs {
+    label="Unified Cost Function & Constraints";
+    color="#BBBBBB";
+    style="rounded";
+
+    cost_len [label="Path Length\n(能源最优)"];
+    cost_smooth [label="Smoothness\n(探索角度)"];
+    cost_dev [label="Deviation\n(相对原始航迹)"];
+    cost_signal [label="Signal Strength\n(项目重点)"];
+    unified_cost [label="Unified Cost Function\n+ Constraints", shape=box, fillcolor="#E8F0FF", color="#2E5AAC"];
+  }
+
+  subgraph cluster_planners {
+    label="Planners";
+    color="#BBBBBB";
+    style="rounded";
+
+    astar [label="A* (astar)\nHeuristic Search\n协同优化 + 避障", shape=box, fillcolor="#E6F7FF", color="#0E6E9E"];
+    alt_iface [label="Unified Interface\n统一接口", shape=box, fillcolor="#FFF7E6", color="#B26A00"];
+    rrt [label="RRT", shape=box, fillcolor="#FFF7E6", color="#B26A00"];
+    lin_opt [label="Linear Optimization\n线性优化", shape=box, fillcolor="#FFF7E6", color="#B26A00"];
+  }
+
+  subgraph cluster_outputs {
+    label="Outputs";
+    color="#BBBBBB";
+    style="rounded";
+
+    result [label="Optimized Path\n(优化后路径)"];
+    compare [label="Before/After Comparison\n优化前后对比结果", shape=box, fillcolor="#EAF7EA", color="#2E7D32"];
+  }
+
+  raw_wp -> unified_cost;
+  env_info -> unified_cost;
+
+  cost_len -> unified_cost;
+  cost_smooth -> unified_cost;
+  cost_dev -> unified_cost;
+  cost_signal -> unified_cost;
+
+  unified_cost -> astar;
+  astar -> result;
+  result -> compare;
+  raw_wp -> compare [style=dashed, label="baseline"];
+
+  unified_cost -> alt_iface;
+  alt_iface -> rrt;
+  alt_iface -> lin_opt;
+  rrt -> result [style=dashed];
+  lin_opt -> result [style=dashed];
+}

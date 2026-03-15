@@ -30,8 +30,8 @@ Rectangle {
     property var originalPathWaypoints: []
 
     // Layout tuning
-    property real _metricLabelWidth: Math.min(ScreenTools.defaultFontPixelWidth * 18, width * 0.45)
-    property real _barHeight: Math.max(16, ScreenTools.defaultFontPixelHeight * 1.2)
+    property real _barWidth: Math.max(18, ScreenTools.defaultFontPixelWidth * 2.5)
+    property real _barMaxHeight: Math.max(72, ScreenTools.defaultFontPixelHeight * 5.5)
 
     onComparisonDataChanged: {
         console.log('[TowerOptimize] comparisonData changed, original:', !!comparisonData.original, 'optimized:', !!comparisonData.optimized)
@@ -166,92 +166,109 @@ Rectangle {
                     console.log('[TowerOptimize]   - scrollView.viewport:', !!scrollView.viewport)
                 }
 
-                // Legend row for the two bar columns (horizontal bars)
+                // Legend row for the two bar columns (vertical bars)
                 RowLayout {
                     width: parent.width
                     spacing: ScreenTools.defaultFontPixelWidth
                     height: ScreenTools.defaultFontPixelHeight * 1.2
 
-                    Item { Layout.preferredWidth: comparisonPanel._metricLabelWidth }
+                    Rectangle {
+                        width: ScreenTools.defaultFontPixelWidth * 1.2
+                        height: width
+                        radius: 2
+                        color: "#4569df"
+                    }
 
                     QGCLabel {
                         text: "Original"
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
                         font.pointSize: ScreenTools.defaultFontPointSize * 0.8
                         opacity: 0.8
+                    }
+
+                    Rectangle {
+                        width: ScreenTools.defaultFontPixelWidth * 1.2
+                        height: width
+                        radius: 2
+                        color: QGroundControl.globalPalette.mapMissionTrajectory
                     }
 
                     QGCLabel {
                         text: "Optimized"
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
                         font.pointSize: ScreenTools.defaultFontPointSize * 0.8
                         opacity: 0.8
                     }
+
+                    Item { Layout.fillWidth: true }
                 }
 
-                Repeater {
-                    model: [
-                        { name: "Min Obstacle Distance", key: "obstacleMinDistance", unit: "m", format: "f1", higherBetter: true  },
-                        { name: "Avg Obstacle Distance", key: "obstacleAvgDistance", unit: "m", format: "f1", higherBetter: true  },
-                        { name: "Avg Signal Strength",   key: "signalAvg",          unit: "",  format: "f2", higherBetter: true  },
-                        { name: "Min Signal Strength",   key: "signalMin",          unit: "",  format: "f2", higherBetter: true  },
-                        { name: "Max Signal Strength",   key: "signalMax",          unit: "",  format: "f2", higherBetter: true  },
-                        { name: "Energy Index",          key: "pathLength",         unit: "",  format: "f2", higherBetter: false },
-                        { name: "Path Smoothness",       key: "pathSmoothness",     unit: "°", format: "f1", higherBetter: false },
-                        { name: "Overall Score",         key: "overscore",          unit: "",  format: "f2", higherBetter: true  }
-                    ]
+                Flow {
+                    id: metricFlow
+                    width: parent.width
+                    spacing: ScreenTools.defaultFontPixelWidth
 
-                    delegate: Loader {
-                        id:                 metricLoader
-                        width:              parent.width
-                        sourceComponent:    metricItemComponent
+                    Repeater {
+                        model: [
+                            { name: "Min Obstacle Distance", key: "obstacleMinDistance", unit: "m", format: "f1", higherBetter: true  },
+                            { name: "Avg Obstacle Distance", key: "obstacleAvgDistance", unit: "m", format: "f1", higherBetter: true  },
+                            { name: "Avg Signal Strength",   key: "signalAvg",          unit: "",  format: "f2", higherBetter: true  },
+                            { name: "Min Signal Strength",   key: "signalMin",          unit: "",  format: "f2", higherBetter: true  },
+                            { name: "Max Signal Strength",   key: "signalMax",          unit: "",  format: "f2", higherBetter: true  },
+                            { name: "Energy Index",          key: "pathLength",         unit: "",  format: "f2", higherBetter: false },
+                            { name: "Path Smoothness",       key: "pathSmoothness",     unit: "°", format: "f1", higherBetter: false },
+                            { name: "Overall Score",         key: "overscore",          unit: "",  format: "f2", higherBetter: true  }
+                        ]
 
-                        property string metricName:     modelData.name
-                        property string metricKey:      modelData.key
-                        property string unit:           modelData.unit
-                        property string format:         modelData.format
-                        property bool   higherBetter:   modelData.higherBetter
+                        delegate: Loader {
+                            id:                 metricLoader
+                            width:              item ? item.width : ScreenTools.defaultFontPixelWidth * 12
+                            height:             item ? item.height : ScreenTools.defaultFontPixelHeight * 8
+                            sourceComponent:    metricItemComponent
 
-                        property real   originalValue:  comparisonPanel.comparisonData.original ? (comparisonPanel.comparisonData.original[modelData.key] || 0) : 0
-                        property real   optimizedValue: comparisonPanel.comparisonData.optimized ? (comparisonPanel.comparisonData.optimized[modelData.key] || 0) : 0
+                            property string metricName:     modelData.name
+                            property string metricKey:      modelData.key
+                            property string unit:           modelData.unit
+                            property string format:         modelData.format
+                            property bool   higherBetter:   modelData.higherBetter
 
-                        Connections {
-                            target: comparisonPanel
-                            function onComparisonDataChanged() {
-                                if (metricLoader.item) {
-                                    var newOriginal = comparisonPanel.comparisonData.original ? (comparisonPanel.comparisonData.original[modelData.key] || 0) : 0
-                                    var newOptimized = comparisonPanel.comparisonData.optimized ? (comparisonPanel.comparisonData.optimized[modelData.key] || 0) : 0
-                                    if (index === 0) {
-                                        console.log('[TowerOptimize] ComparisonData changed for', modelData.key, 'original:', newOriginal, 'optimized:', newOptimized)
+                            property real   originalValue:  comparisonPanel.comparisonData.original ? (comparisonPanel.comparisonData.original[modelData.key] || 0) : 0
+                            property real   optimizedValue: comparisonPanel.comparisonData.optimized ? (comparisonPanel.comparisonData.optimized[modelData.key] || 0) : 0
+
+                            Connections {
+                                target: comparisonPanel
+                                function onComparisonDataChanged() {
+                                    if (metricLoader.item) {
+                                        var newOriginal = comparisonPanel.comparisonData.original ? (comparisonPanel.comparisonData.original[modelData.key] || 0) : 0
+                                        var newOptimized = comparisonPanel.comparisonData.optimized ? (comparisonPanel.comparisonData.optimized[modelData.key] || 0) : 0
+                                        if (index === 0) {
+                                            console.log('[TowerOptimize] ComparisonData changed for', modelData.key, 'original:', newOriginal, 'optimized:', newOptimized)
+                                        }
+                                        metricLoader.item.originalValue = newOriginal
+                                        metricLoader.item.optimizedValue = newOptimized
+                                        metricLoader.item.higherBetter = modelData.higherBetter
                                     }
-                                    metricLoader.item.originalValue = newOriginal
-                                    metricLoader.item.optimizedValue = newOptimized
-                                    metricLoader.item.higherBetter = modelData.higherBetter
                                 }
                             }
-                        }
 
-                        Component.onCompleted: {
-                            if (index === 0) {
-                                console.log('[TowerOptimize] MetricItem Loader created for', modelData.name)
-                                console.log('[TowerOptimize]   - originalValue:', originalValue)
-                                console.log('[TowerOptimize]   - optimizedValue:', optimizedValue)
-                            }
-                        }
-
-                        onItemChanged: {
-                            if (item) {
-                                item.metricName = metricName
-                                item.metricKey = metricKey
-                                item.unit = unit
-                                item.format = format
-                                item.higherBetter = higherBetter
-                                item.originalValue = originalValue
-                                item.optimizedValue = optimizedValue
+                            Component.onCompleted: {
                                 if (index === 0) {
-                                    console.log('[TowerOptimize] MetricItem Loader item set, originalValue:', originalValue, 'optimizedValue:', optimizedValue)
+                                    console.log('[TowerOptimize] MetricItem Loader created for', modelData.name)
+                                    console.log('[TowerOptimize]   - originalValue:', originalValue)
+                                    console.log('[TowerOptimize]   - optimizedValue:', optimizedValue)
+                                }
+                            }
+
+                            onItemChanged: {
+                                if (item) {
+                                    item.metricName = metricName
+                                    item.metricKey = metricKey
+                                    item.unit = unit
+                                    item.format = format
+                                    item.higherBetter = higherBetter
+                                    item.originalValue = originalValue
+                                    item.optimizedValue = optimizedValue
+                                    if (index === 0) {
+                                        console.log('[TowerOptimize] MetricItem Loader item set, originalValue:', originalValue, 'optimizedValue:', optimizedValue)
+                                    }
                                 }
                             }
                         }
@@ -334,7 +351,7 @@ Rectangle {
         console.log('[TowerOptimize] updateChart called (placeholder mode)')
     }
 
-    // Metric comparison item component (horizontal bars, two columns: Original / Optimized)
+    // Metric comparison item component (vertical bars, two columns: Original / Optimized)
     // Visual rule:
     // - If optimized is better (delta > 0), exaggerate the separation between the two bars.
     // - If optimized is worse (delta < 0), compress the separation (make it less obvious).
@@ -350,8 +367,8 @@ Rectangle {
             property real   originalValue:  0
             property real   optimizedValue: 0
 
-            width:  parent.width
-            height: Math.max(ScreenTools.defaultFontPixelHeight * 2.2, comparisonPanel._barHeight + ScreenTools.defaultFontPixelHeight * 1.0)
+            width:  Math.max(ScreenTools.defaultFontPixelWidth * 10, comparisonPanel._barWidth * 2 + ScreenTools.defaultFontPixelWidth * 2)
+            height: comparisonPanel._barMaxHeight + ScreenTools.defaultFontPixelHeight * 2.2
 
             function _fmt(v) {
                 var decimals = (format === "f0") ? 0 : ((format === "f1") ? 1 : 2)
@@ -394,81 +411,91 @@ Rectangle {
                 radius: 4
             }
 
-            RowLayout {
+            ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: ScreenTools.defaultFontPixelWidth * 0.5
-                spacing: ScreenTools.defaultFontPixelWidth
+                spacing: ScreenTools.defaultFontPixelHeight * 0.4
+
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: comparisonPanel._barMaxHeight
+
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: ScreenTools.defaultFontPixelWidth * 0.6
+
+                        // Original column (vertical bar)
+                        Item {
+                            Layout.fillHeight: true
+                            Layout.preferredWidth: comparisonPanel._barWidth
+
+                            Rectangle {
+                                id: originalBg
+                                anchors.fill: parent
+                                radius: 2
+                                color: qgcPal.window
+                                border.width: 1
+                                border.color: qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.12) : Qt.rgba(1,1,1,0.12)
+
+                                Rectangle {
+                                    id: originalFill
+                                    width: parent.width
+                                    height: parent.height * _origFrac
+                                    anchors.bottom: parent.bottom
+                                    radius: 2
+                                    color: "#4569df"
+                                }
+
+                                QGCLabel {
+                                    anchors.centerIn: parent
+                                    text: _fmt(originalValue)
+                                    font.pointSize: ScreenTools.defaultFontPointSize * 0.75
+                                    font.bold: true
+                                    color: (originalFill.height > parent.height * 0.55) ? "white" : qgcPal.text
+                                }
+                            }
+                        }
+
+                        // Optimized column (vertical bar)
+                        Item {
+                            Layout.fillHeight: true
+                            Layout.preferredWidth: comparisonPanel._barWidth
+
+                            Rectangle {
+                                id: optimizedBg
+                                anchors.fill: parent
+                                radius: 2
+                                color: qgcPal.window
+                                border.width: 1
+                                border.color: qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.12) : Qt.rgba(1,1,1,0.12)
+
+                                Rectangle {
+                                    id: optimizedFill
+                                    width: parent.width
+                                    height: parent.height * _optFrac
+                                    anchors.bottom: parent.bottom
+                                    radius: 2
+                                    color: QGroundControl.globalPalette.mapMissionTrajectory
+                                }
+
+                                QGCLabel {
+                                    anchors.centerIn: parent
+                                    text: _fmt(optimizedValue)
+                                    font.pointSize: ScreenTools.defaultFontPointSize * 0.75
+                                    font.bold: true
+                                    color: (optimizedFill.height > parent.height * 0.55) ? "white" : qgcPal.text
+                                }
+                            }
+                        }
+                    }
+                }
 
                 QGCLabel {
                     text: metricName
-                    Layout.preferredWidth: comparisonPanel._metricLabelWidth
-                    Layout.alignment: Qt.AlignVCenter
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
-                    font.pointSize: ScreenTools.defaultFontPointSize * 0.85
-                }
-
-                // Original column (horizontal bar)
-                Item {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignVCenter
-                    height: comparisonPanel._barHeight
-
-                    Rectangle {
-                        id: originalBg
-                        anchors.fill: parent
-                        radius: 2
-                        color: qgcPal.window
-                        border.width: 1
-                        border.color: qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.12) : Qt.rgba(1,1,1,0.12)
-
-                        Rectangle {
-                            id: originalFill
-                            height: parent.height
-                            width: parent.width * _origFrac
-                            radius: 2
-                            color: "#4569df"
-                        }
-
-                        QGCLabel {
-                            anchors.centerIn: parent
-                            text: _fmt(originalValue)
-                            font.pointSize: ScreenTools.defaultFontPointSize * 0.75
-                            font.bold: true
-                            color: (originalFill.width > parent.width * 0.55) ? "white" : qgcPal.text
-                        }
-                    }
-                }
-
-                // Optimized column (horizontal bar)
-                Item {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignVCenter
-                    height: comparisonPanel._barHeight
-
-                    Rectangle {
-                        id: optimizedBg
-                        anchors.fill: parent
-                        radius: 2
-                        color: qgcPal.window
-                        border.width: 1
-                        border.color: qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.12) : Qt.rgba(1,1,1,0.12)
-
-                        Rectangle {
-                            id: optimizedFill
-                            height: parent.height
-                            width: parent.width * _optFrac
-                            radius: 2
-                            color: QGroundControl.globalPalette.mapMissionTrajectory
-                        }
-
-                        QGCLabel {
-                            anchors.centerIn: parent
-                            text: _fmt(optimizedValue)
-                            font.pointSize: ScreenTools.defaultFontPointSize * 0.75
-                            font.bold: true
-                            color: (optimizedFill.width > parent.width * 0.55) ? "white" : qgcPal.text
-                        }
-                    }
+                    font.pointSize: ScreenTools.defaultFontPointSize * 0.75
                 }
             }
         }
