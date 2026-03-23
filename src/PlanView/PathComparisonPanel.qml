@@ -37,49 +37,23 @@ Rectangle {
     property real _barMaxHeight: Math.max(72, ScreenTools.defaultFontPixelHeight * 5.5)
 
     onComparisonDataChanged: {
-        console.log('[TowerOptimize] comparisonData changed, original:', !!comparisonData.original, 'optimized:', !!comparisonData.optimized, 'length:', !!comparisonData.length, 'smooth:', !!comparisonData.smooth)
         if (contentColumn) {
-            console.log('[TowerOptimize] Triggering Repeater refresh')
         }
     }
 
     QGCPalette { id: qgcPal }
 
     Component.onCompleted: {
-        console.log('[TowerOptimize] ===== PathComparisonPanel Component.onCompleted =====')
-        console.log('[TowerOptimize] PathComparisonPanel Rectangle created')
-        console.log('[TowerOptimize]   - width:', width, 'height:', height)
-        console.log('[TowerOptimize]   - parent:', !!parent, 'parent.height:', parent ? parent.height : 'no parent')
-        console.log('[TowerOptimize]   - missionController:', !!missionController)
-        console.log('[TowerOptimize]   - Panel visible:', visible)
-        console.log('[TowerOptimize]   - Panel color:', color)
-        console.log('[TowerOptimize]   - Panel x:', x, 'y:', y)
-        console.log('[TowerOptimize]   - comparisonData:', !!comparisonData)
-        console.log('[TowerOptimize]   - qgcPal:', !!qgcPal)
-        console.log('[TowerOptimize]   - originalPathWaypoints length:', originalPathWaypoints ? originalPathWaypoints.length : 0)
-        console.log('[TowerOptimize] ===== Component.onCompleted end =====')
 
         Qt.callLater(function() { refresh() })
     }
 
     function refresh() {
-        console.log('[TowerOptimize] ===== PathComparisonPanel Refresh called =====')
-        console.log('[TowerOptimize] missionController:', !!missionController)
-        console.log('[TowerOptimize] Panel visible:', visible)
-        console.log('[TowerOptimize] Panel width:', width, 'height:', height)
-        console.log('[TowerOptimize] Panel x:', x, 'y:', y)
-        console.log('[TowerOptimize] Panel parent:', !!parent)
 
         if (missionController) {
-            console.log('[TowerOptimize] Getting path comparison metrics...')
-            console.log('[TowerOptimize] originalPathWaypoints from property:', originalPathWaypoints.length)
-            console.log('[TowerOptimize] signalPathWaypoints from property:', signalPathWaypoints.length)
-            console.log('[TowerOptimize] lengthPathWaypoints from property:', lengthPathWaypoints.length)
-            console.log('[TowerOptimize] smoothPathWaypoints from property:', smoothPathWaypoints.length)
 
             if (originalPathWaypoints && originalPathWaypoints.length > 0 &&
                 (signalPathWaypoints && signalPathWaypoints.length > 0)) {
-                console.log('[TowerOptimize] Using provided multi-path waypoints')
                 comparisonData = TowerOpt.getMultiPathComparisonMetrics(
                     originalPathWaypoints,
                     signalPathWaypoints,
@@ -87,90 +61,41 @@ Rectangle {
                     smoothPathWaypoints
                 )
             } else if (originalPathWaypoints && originalPathWaypoints.length > 0) {
-                console.log('[TowerOptimize] Using originalPathWaypoints from QML property')
                 comparisonData = TowerOpt.getPathComparisonMetricsWithOriginal(missionController, originalPathWaypoints)
             } else {
-                console.log('[TowerOptimize] Using originalPathWaypoints from module variable')
                 comparisonData = TowerOpt.getPathComparisonMetrics(missionController)
             }
 
-            console.log('[TowerOptimize] Comparison data received:')
-            console.log('[TowerOptimize]   - original:', !!comparisonData.original)
-            console.log('[TowerOptimize]   - optimized:', !!comparisonData.optimized)
             if (comparisonData.length === undefined) comparisonData.length = null
             if (comparisonData.smooth === undefined) comparisonData.smooth = null
 
             if (comparisonData.original) {
-                console.log('[TowerOptimize]   - original obstacleMinDistance:', comparisonData.original.obstacleMinDistance)
-                console.log('[TowerOptimize]   - original obstacleAvgDistance:', comparisonData.original.obstacleAvgDistance)
-                console.log('[TowerOptimize]   - original signalAvg:', comparisonData.original.signalAvg)
-                console.log('[TowerOptimize]   - original signalMin:', comparisonData.original.signalMin)
-                console.log('[TowerOptimize]   - original signalMax:', comparisonData.original.signalMax)
-                console.log('[TowerOptimize]   - original energyIndex (pathLength):', comparisonData.original.pathLength)
-                console.log('[TowerOptimize]   - original pathSmoothness:', comparisonData.original.pathSmoothness)
-                console.log('[TowerOptimize]   - original overscore:', comparisonData.original.overscore)
             } else {
-                console.warn('[TowerOptimize]   - original data is null!')
             }
 
             if (comparisonData.optimized) {
-                console.log('[TowerOptimize]   - optimized obstacleMinDistance:', comparisonData.optimized.obstacleMinDistance)
-                console.log('[TowerOptimize]   - optimized obstacleAvgDistance:', comparisonData.optimized.obstacleAvgDistance)
-                console.log('[TowerOptimize]   - optimized signalAvg:', comparisonData.optimized.signalAvg)
-                console.log('[TowerOptimize]   - optimized signalMin:', comparisonData.optimized.signalMin)
-                console.log('[TowerOptimize]   - optimized signalMax:', comparisonData.optimized.signalMax)
-                console.log('[TowerOptimize]   - optimized energyIndex (pathLength):', comparisonData.optimized.pathLength)
-                console.log('[TowerOptimize]   - optimized pathSmoothness:', comparisonData.optimized.pathSmoothness)
-                console.log('[TowerOptimize]   - optimized overscore:', comparisonData.optimized.overscore)
             } else {
-                console.warn('[TowerOptimize]   - optimized data is null!')
             }
 
             if (comparisonData.length) {
-                console.log('[TowerOptimize]   - length obstacleMinDistance:', comparisonData.length.obstacleMinDistance)
-                console.log('[TowerOptimize]   - length obstacleAvgDistance:', comparisonData.length.obstacleAvgDistance)
-                console.log('[TowerOptimize]   - length signalAvg:', comparisonData.length.signalAvg)
-                console.log('[TowerOptimize]   - length signalMin:', comparisonData.length.signalMin)
-                console.log('[TowerOptimize]   - length signalMax:', comparisonData.length.signalMax)
-                console.log('[TowerOptimize]   - length energyIndex (pathLength):', comparisonData.length.pathLength)
-                console.log('[TowerOptimize]   - length pathSmoothness:', comparisonData.length.pathSmoothness)
-                console.log('[TowerOptimize]   - length overscore:', comparisonData.length.overscore)
             } else {
-                console.warn('[TowerOptimize]   - length data is null!')
             }
 
             if (comparisonData.smooth) {
-                console.log('[TowerOptimize]   - smooth obstacleMinDistance:', comparisonData.smooth.obstacleMinDistance)
-                console.log('[TowerOptimize]   - smooth obstacleAvgDistance:', comparisonData.smooth.obstacleAvgDistance)
-                console.log('[TowerOptimize]   - smooth signalAvg:', comparisonData.smooth.signalAvg)
-                console.log('[TowerOptimize]   - smooth signalMin:', comparisonData.smooth.signalMin)
-                console.log('[TowerOptimize]   - smooth signalMax:', comparisonData.smooth.signalMax)
-                console.log('[TowerOptimize]   - smooth energyIndex (pathLength):', comparisonData.smooth.pathLength)
-                console.log('[TowerOptimize]   - smooth pathSmoothness:', comparisonData.smooth.pathSmoothness)
-                console.log('[TowerOptimize]   - smooth overscore:', comparisonData.smooth.overscore)
             } else {
-                console.warn('[TowerOptimize]   - smooth data is null!')
             }
 
             updateChart()
-            console.log('[TowerOptimize] Chart updated')
 
             // Force UI update
             var tempData = comparisonData
             comparisonData = ({ original: null, optimized: null, length: null, smooth: null })
             Qt.callLater(function() {
                 comparisonData = tempData
-                console.log('[TowerOptimize] comparisonData reassigned to trigger UI update')
-                console.log('[TowerOptimize]   - original after reassign:', !!comparisonData.original)
-                console.log('[TowerOptimize]   - optimized after reassign:', !!comparisonData.optimized)
-                console.log('[TowerOptimize]   - length after reassign:', !!comparisonData.length)
-                console.log('[TowerOptimize]   - smooth after reassign:', !!comparisonData.smooth)
             })
         } else {
-            console.warn('[TowerOptimize] No missionController available, cannot refresh')
         }
 
-        console.log('[TowerOptimize] ===== PathComparisonPanel Refresh completed =====')
     }
 
     ColumnLayout {
@@ -193,10 +118,6 @@ Rectangle {
             Layout.fillHeight:  true
 
             Component.onCompleted: {
-                console.log('[TowerOptimize] ScrollView created')
-                console.log('[TowerOptimize]   - width:', width, 'height:', height)
-                console.log('[TowerOptimize]   - Layout.fillWidth:', Layout.fillWidth)
-                console.log('[TowerOptimize]   - Layout.fillHeight:', Layout.fillHeight)
             }
 
             Column {
@@ -205,10 +126,6 @@ Rectangle {
                 spacing:    ScreenTools.defaultFontPixelHeight * 0.5
 
                 Component.onCompleted: {
-                    console.log('[TowerOptimize] PathComparisonPanel contentColumn created')
-                    console.log('[TowerOptimize]   - width:', width)
-                    console.log('[TowerOptimize]   - scrollView.width:', scrollView.width)
-                    console.log('[TowerOptimize]   - scrollView.viewport:', !!scrollView.viewport)
                 }
 
                 // Legend row for the bar columns (vertical bars)
@@ -321,7 +238,6 @@ Rectangle {
                                     var newLength = comparisonPanel.comparisonData.length ? (comparisonPanel.comparisonData.length[modelData.key] || 0) : 0
                                     var newSmooth = comparisonPanel.comparisonData.smooth ? (comparisonPanel.comparisonData.smooth[modelData.key] || 0) : 0
                                     if (index === 0) {
-                                        console.log('[TowerOptimize] ComparisonData changed for', modelData.key, 'original:', newOriginal, 'optimized:', newOptimized, 'length:', newLength, 'smooth:', newSmooth)
                                     }
                                         metricLoader.item.originalValue = newOriginal
                                         metricLoader.item.optimizedValue = newOptimized
@@ -336,11 +252,6 @@ Rectangle {
 
                             Component.onCompleted: {
                                 if (index === 0) {
-                                    console.log('[TowerOptimize] MetricItem Loader created for', modelData.name)
-                                    console.log('[TowerOptimize]   - originalValue:', originalValue)
-                                console.log('[TowerOptimize]   - optimizedValue:', optimizedValue)
-                                console.log('[TowerOptimize]   - lengthValue:', lengthValue)
-                                console.log('[TowerOptimize]   - smoothValue:', smoothValue)
                             }
                         }
 
@@ -358,7 +269,6 @@ Rectangle {
                             item.showLength = showLength
                             item.showSmooth = showSmooth
                             if (index === 0) {
-                                console.log('[TowerOptimize] MetricItem Loader item set, originalValue:', originalValue, 'optimizedValue:', optimizedValue, 'lengthValue:', lengthValue, 'smoothValue:', smoothValue)
                             }
                         }
                     }
@@ -442,18 +352,15 @@ Rectangle {
             Layout.alignment:   Qt.AlignHCenter
 
             Component.onCompleted: {
-                console.log('[TowerOptimize] PathComparisonPanel refreshButton created')
             }
 
             onClicked: {
-                console.log('[TowerOptimize] Refresh button clicked')
                 comparisonPanel.refresh()
             }
         }
     }
 
     function updateChart() {
-        console.log('[TowerOptimize] updateChart called (placeholder mode)')
     }
 
     // Metric comparison item component (vertical bars, columns: Original / Signal / Shorter / Smoother)

@@ -4374,8 +4374,9 @@ Item {
             anchors.top:        parent.top
             anchors.bottom:     parent.bottom
             width:              Math.min(ScreenTools.defaultFontPixelWidth * 46, parent.width * 0.38)
-            visible:            _editingLayer == _layerMission && item !== null
-            active:             true
+            readonly property bool _hasComparisonData: originalPathForDisplay.length > 0 || signalPathForDisplay.length > 0 || lengthPathForDisplay.length > 0 || smoothPathForDisplay.length > 0
+            visible:            _editingLayer == _layerMission && _hasComparisonData && item !== null
+            active:             _editingLayer == _layerMission && _hasComparisonData
 
             onLoaded: {
                 if (item) {
