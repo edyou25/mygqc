@@ -21,6 +21,7 @@ import QtQuick.Layouts 1.3
 import QtQuick.Controls 1.4
 import QGroundControl.Greenland 1.0
 import QGroundControl.Water 1.0
+import QGroundControl.Building 1.0
 import QGroundControl                   1.0
 import QGroundControl.FlightMap         1.0
 import QGroundControl.ScreenTools       1.0
@@ -30,24 +31,147 @@ import QGroundControl.FactControls      1.0
 import QGroundControl.Palette           1.0
 import QGroundControl.Controllers       1.0
 import QGroundControl.ShapeFileHelper   1.0
-import Qt.labs.settings 1.0
 import "./TowerOptimize.js" as TowerOpt
 
 Item {
     id: _root
-    // Greenland persistence (GLOBAL, permanent)
-    Settings {
-        id: greenlandSettings
-        category: "Greenland"               // QSettings group name
-        property string greenlandsJson: "[]"
-        property int nextId: 1
+    readonly property string _greenlandDataUrl: "qrc:/data/greenlands.json"
+    readonly property string _waterDataUrl: "qrc:/data/waters.json"
+    readonly property string _buildingDenseDataUrl: "qrc:/data/buildings_dense.json"
+    property var _lastSyncedBuildingAreasForCppRef: null
+    property var _cachedBuildingAreasForCppSourceRef: null
+    property var _cachedBuildingAreasForCpp: []
+    property bool _greenlandPersistenceDisabledLogged: false
+    property bool _waterPersistenceDisabledLogged: false
+    property bool _buildingPersistenceDisabledLogged: false
+    property int _terrainRecoveryPassesRemaining: 0
+
+    function _scheduleTerrainRecoveryPasses(passCount) {
+        _terrainRecoveryPassesRemaining = Math.max(0, passCount || 0)
+        if (_terrainRecoveryPassesRemaining > 0) {
+            _terrainRecoveryTimer.restart()
+        }
     }
-    // Water persistence (GLOBAL, permanent)
-    Settings {
-        id: waterSettings
-        category: "Water"
-        property string watersJson: "[]"
-        property int nextId: 1
+
+    function _serializePathPoints(path) {
+        var out = []
+        if (!path) return out
+
+        for (var i = 0; i < path.length; i++) {
+            var c = path[i]
+            if (!c || isNaN(c.latitude) || isNaN(c.longitude)) continue
+            out.push({ lat: c.latitude, lon: c.longitude, alt: isNaN(c.altitude) ? 0 : c.altitude })
+        }
+        return out
+    }
+
+    function _serializeAreasForCpp(areas, idKey) {
+        var out = []
+        if (!areas) return out
+
+        for (var i = 0; i < areas.length; i++) {
+            var area = areas[i]
+            if (!area || !area.path || area.path.length < 3) continue
+            var serialized = {
+                id: area[idKey],
+                path: _serializePathPoints(area.path)
+            }
+
+            if (area.heightMeters !== undefined && isFinite(Number(area.heightMeters)) && Number(area.heightMeters) > 0) {
+                serialized.heightMeters = Number(area.heightMeters)
+            }
+            if (area.minHeightMeters !== undefined && isFinite(Number(area.minHeightMeters)) && Number(area.minHeightMeters) > 0) {
+                serialized.minHeightMeters = Number(area.minHeightMeters)
+            }
+            if (area.levels !== undefined && isFinite(Number(area.levels)) && Number(area.levels) > 0) {
+                serialized.levels = Number(area.levels)
+            }
+
+            out.push(serialized)
+        }
+        return out
+    }
+
+    function _serializeRoadsForCpp() {
+        var out = []
+        if (!editorMap.roads) return out
+
+        for (var i = 0; i < editorMap.roads.length; i++) {
+            var road = editorMap.roads[i]
+            if (!road || !road.path || road.path.length < 2) continue
+            out.push({
+                id: road.id || (i + 1),
+                name: road.name || "",
+                path: _serializePathPoints(road.path)
+            })
+        }
+        return out
+    }
+
+    function _syncPathOptimizationWeightsToCpp() {
+        if (typeof PathOptimizationManager === "undefined") return
+        if (typeof weightPanel === "undefined" || !weightPanel) return
+
+        PathOptimizationManager.distanceWeight = weightPanel.distanceWeightLocal
+        PathOptimizationManager.signalWeight = weightPanel.signalWeightLocal
+        PathOptimizationManager.weatherWeight = weightPanel.weatherWeightLocal
+        PathOptimizationManager.greenlandWeight = weightPanel.greenlandWeightLocal
+        PathOptimizationManager.buildingWeight = weightPanel.buildingWeightLocal
+        PathOptimizationManager.waterWeight = weightPanel.waterWeightLocal
+        PathOptimizationManager.roadWeight = weightPanel.roadsWeightLocal
+    }
+
+    function _syncPathOptimizationFeaturesToCpp() {
+        if (typeof PathOptimizationManager === "undefined") return
+        if (!PathOptimizationManager.towerOptimizer) return
+
+        if (_cachedBuildingAreasForCppSourceRef !== editorMap.buildingsDense) {
+            _cachedBuildingAreasForCpp = _serializeAreasForCpp(editorMap.buildingsDense, "bdid")
+            _cachedBuildingAreasForCppSourceRef = editorMap.buildingsDense
+        }
+        var buildingAreasForCpp = _cachedBuildingAreasForCpp
+
+        PathOptimizationManager.towerOptimizer.setGreenlandAreas(_serializeAreasForCpp(editorMap.greenlands, "gid"))
+        PathOptimizationManager.towerOptimizer.setWaterAreas(_serializeAreasForCpp(editorMap.waters, "wid"))
+        if (_lastSyncedBuildingAreasForCppRef !== buildingAreasForCpp) {
+            PathOptimizationManager.towerOptimizer.setBuildingAreas(buildingAreasForCpp)
+            _lastSyncedBuildingAreasForCppRef = buildingAreasForCpp
+        }
+        PathOptimizationManager.towerOptimizer.setRoads(_serializeRoadsForCpp())
+
+        console.log("[PathOpt] synced features:",
+                    "greenland=", editorMap.greenlands ? editorMap.greenlands.length : 0,
+                    "water=", editorMap.waters ? editorMap.waters.length : 0,
+                    "buildingDisplay=", editorMap.buildingsDense ? editorMap.buildingsDense.length : 0,
+                    "buildingCpp=", buildingAreasForCpp.length,
+                    "roads=", editorMap.roads ? editorMap.roads.length : 0)
+    }
+
+    function _syncPathOptimizationStateToCpp() {
+        _syncPathOptimizationWeightsToCpp()
+        _syncPathOptimizationFeaturesToCpp()
+    }
+
+    Timer {
+        id: _terrainRecoveryTimer
+        interval: 1000
+        repeat: false
+        onTriggered: {
+            if (_terrainRecoveryPassesRemaining <= 0) {
+                return
+            }
+
+            var passResult = TowerOpt.applyTerrainClearancePass(_missionController, _planMasterController, {})
+            _terrainRecoveryPassesRemaining--
+
+            if (_terrainRecoveryPassesRemaining > 0
+                    && (passResult.pendingTerrainCount > 0
+                        || passResult.collidingCount > 0
+                        || passResult.adjustedCount > 0
+                        || passResult.missingHomeAltitude)) {
+                _terrainRecoveryTimer.restart()
+            }
+        }
     }
 
     function _serializeWaters() {
@@ -84,6 +208,7 @@ Item {
         editorMap.waterEditMode = false
 
         var maxId = 0
+        var restoredAreas = []
 
         for (var i = 0; i < arr.length; i++) {
             var o = arr[i]
@@ -106,11 +231,12 @@ Item {
             area.path = pathCoords
 
             if (area.wid > maxId) maxId = area.wid
-            editorMap.waters = editorMap.waters.concat([area])
+            restoredAreas.push(area)
         }
 
-        editorMap.waterNextId = Math.max(maxId + 1, waterSettings.nextId || 1)
-        waterSettings.nextId = editorMap.waterNextId
+        editorMap.waters = restoredAreas
+
+        editorMap.waterNextId = Math.max(maxId + 1, 1)
 
         if (editorMap.waters.length) {
             editorMap.selectedWaterId = editorMap.waters[editorMap.waters.length - 1].wid
@@ -120,49 +246,39 @@ Item {
     }
 
     function saveWatersGlobal() {
-        waterSettings.watersJson = _serializeWaters()
-        waterSettings.nextId = editorMap.waterNextId
-        _pushRegionAttractorsToCpp()
-        console.log("[Attractors] greenlands=", editorMap.greenlands ? editorMap.greenlands.length : -1,
-            "waters=", editorMap.waters ? editorMap.waters.length : -1)
-
-        console.log("[Attractors] about to call setAttractors, pts=", pts.length)
-        PathOptimizationManager.towerOptimizer.setAttractors(pts)
-        console.log("[Attractors] called setAttractors OK")
+        editorMap._scheduleRegionVisibleAreasRefresh()
+        _syncPathOptimizationStateToCpp()
+        if (!_waterPersistenceDisabledLogged) {
+            console.log("[Water] persistence disabled; using", _waterDataUrl)
+            _waterPersistenceDisabledLogged = true
+        }
     }
 
     function loadWatersGlobal() {
-        _restoreWatersFromJson(waterSettings.watersJson)
-        _pushRegionAttractorsToCpp()
+        console.log("[Water] restoring from resource", _waterDataUrl)
+        loadWatersFromResource(_waterDataUrl)
+    }
+
+    function loadWatersFromResource(url) {
+        var dataUrl = url || _waterDataUrl
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", dataUrl)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE) return
+            if (xhr.status !== 200 && xhr.status !== 0) {
+                console.warn("[Water] Failed to load", dataUrl, "status=", xhr.status)
+                _restoreWatersFromJson("[]")
+                _syncPathOptimizationStateToCpp()
+                return
+            }
+            _restoreWatersFromJson(xhr.responseText)
+            _syncPathOptimizationStateToCpp()
+        }
+        xhr.send()
     }
 
     function _pushRegionAttractorsToCpp() {
-        console.log("[Attractors] ENTER _pushRegionAttractorsToCpp")
-        if (typeof PathOptimizationManager === "undefined") return
-        if (!PathOptimizationManager.towerOptimizer) return
-
-        var pts = []
-
-        if (editorMap.greenlands) {
-            for (var i = 0; i < editorMap.greenlands.length; i++) {
-                var g = editorMap.greenlands[i]
-                if (!g || !g.path || g.path.length < 3) continue
-                var c = editorMap._pathCenter(g.path)
-                pts.push({ lat: c.latitude, lon: c.longitude, name: "Greenland" + g.gid, type: "greenland" })
-            }
-        }
-
-        if (editorMap.waters) {
-            for (var j = 0; j < editorMap.waters.length; j++) {
-                var w = editorMap.waters[j]
-                if (!w || !w.path || w.path.length < 3) continue
-                var c2 = editorMap._pathCenter(w.path)
-                pts.push({ lat: c2.latitude, lon: c2.longitude, name: "Water" + w.wid, type: "water" })
-            }
-        }
-
-        PathOptimizationManager.towerOptimizer.setAttractors(pts)
-        console.log("[Attractors] pushed:", pts.length)
+        _syncPathOptimizationStateToCpp()
     }
 
     function _serializeGreenlands() {
@@ -200,6 +316,7 @@ Item {
         editorMap.greenlandEditMode = false
 
         var maxId = 0
+        var restoredAreas = []
 
         for (var i = 0; i < arr.length; i++) {
             var o = arr[i]
@@ -222,11 +339,12 @@ Item {
             area.path = pathCoords
 
             if (area.gid > maxId) maxId = area.gid
-            editorMap.greenlands = editorMap.greenlands.concat([area])
+            restoredAreas.push(area)
         }
 
-        editorMap.greenlandNextId = Math.max(maxId + 1, greenlandSettings.nextId || 1)
-        greenlandSettings.nextId = editorMap.greenlandNextId
+        editorMap.greenlands = restoredAreas
+
+        editorMap.greenlandNextId = Math.max(maxId + 1, 1)
 
         if (editorMap.greenlands.length) {
             editorMap.selectedGreenlandId = editorMap.greenlands[editorMap.greenlands.length - 1].gid
@@ -236,15 +354,236 @@ Item {
     }
 
     function saveGreenlandsGlobal() {
-        greenlandSettings.greenlandsJson = _serializeGreenlands()
-        greenlandSettings.nextId = editorMap.greenlandNextId
+        editorMap._scheduleRegionVisibleAreasRefresh()
         _pushRegionAttractorsToCpp()
+        if (!_greenlandPersistenceDisabledLogged) {
+            console.log("[Greenland] persistence disabled; using", _greenlandDataUrl)
+            _greenlandPersistenceDisabledLogged = true
+        }
     }
 
     function loadGreenlandsGlobal() {
-        _restoreGreenlandsFromJson(greenlandSettings.greenlandsJson)
-        _pushRegionAttractorsToCpp()
+        console.log("[Greenland] restoring from resource", _greenlandDataUrl)
+        loadGreenlandsFromResource(_greenlandDataUrl)
     }
+
+    function loadGreenlandsFromResource(url) {
+        var dataUrl = url || _greenlandDataUrl
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", dataUrl)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE) return
+            if (xhr.status !== 200 && xhr.status !== 0) {
+                console.warn("[Greenland] Failed to load", dataUrl, "status=", xhr.status)
+                _restoreGreenlandsFromJson("[]")
+                _pushRegionAttractorsToCpp()
+                return
+            }
+            _restoreGreenlandsFromJson(xhr.responseText)
+            _pushRegionAttractorsToCpp()
+        }
+        xhr.send()
+    }
+
+    // =======================
+    // BuildingDense resource loading
+    // =======================
+    // Building restore state for chunked startup loading
+    property var _buildingRestoreArr: []
+    property int _buildingRestoreCount: 0
+    property int _buildingRestoreCursor: 0
+    property int _buildingRestoreMaxId: 0
+    property int _buildingRestoreTotalInSettings: 0
+    readonly property int _buildingRestoreBatchSize: 24
+
+    function _createBuildingDenseObject(o, objectIndex) {
+        if (!o || !o.path || o.path.length < 3) {
+            return null
+        }
+
+        var area = Qt.createQmlObject(
+            "import QGroundControl.Building 1.0; BuildingDense {}",
+            editorMap,
+            "BuildingDensePersist" + objectIndex
+        )
+
+        area.bdid = o.bdid || 0
+        if (o.heightMeters !== undefined && isFinite(Number(o.heightMeters))) {
+            area.heightMeters = Number(o.heightMeters)
+        } else if (o.height !== undefined && isFinite(Number(o.height))) {
+            area.heightMeters = Number(o.height)
+        }
+        if (o.minHeightMeters !== undefined && isFinite(Number(o.minHeightMeters))) {
+            area.minHeightMeters = Number(o.minHeightMeters)
+        } else if (o.min_height !== undefined && isFinite(Number(o.min_height))) {
+            area.minHeightMeters = Number(o.min_height)
+        }
+        if (o.levels !== undefined && isFinite(Number(o.levels))) {
+            area.levels = Number(o.levels)
+        } else if (o["building:levels"] !== undefined && isFinite(Number(o["building:levels"]))) {
+            area.levels = Number(o["building:levels"])
+        }
+
+        var pathCoords = []
+        for (var k = 0; k < o.path.length; k++) {
+            var pt = o.path[k]
+            if (!pt || pt.length < 2) continue
+            pathCoords.push(QtPositioning.coordinate(pt[0], pt[1]))
+        }
+        area.path = pathCoords
+        return area
+    }
+
+    function _finalizeBuildingsDenseRestore(totalInSettings) {
+        editorMap.buildingDenseNextId = Math.max(
+            _buildingRestoreMaxId + 1,
+            editorMap.buildingDenseNextId || 1
+        )
+        editorMap.buildingRestoreLoadedCount = editorMap.buildingRestoreTargetCount
+        editorMap.buildingRestoreLoading = false
+        buildingRestoreDoneToast.restart()
+
+        if (editorMap.buildingsDense.length) {
+            editorMap.selectedBuildingDenseId =
+                editorMap.buildingsDense[editorMap.buildingsDense.length - 1].bdid
+        }
+
+        console.log("[BuildingDense] restored count=", editorMap.buildingsDense.length,
+                    "nextId=", editorMap.buildingDenseNextId, "totalInSettings=", totalInSettings)
+        _syncPathOptimizationStateToCpp()
+    }
+
+    function _serializeBuildingsDense() {
+        var out = []
+        if (!editorMap.buildingsDense) return "[]"
+
+        for (var i = 0; i < editorMap.buildingsDense.length; i++) {
+            var a = editorMap.buildingsDense[i]
+            if (!a || !a.path || a.path.length < 3) continue
+
+            var path = []
+            for (var k = 0; k < a.path.length; k++) {
+                var c = a.path[k]
+                if (!c || isNaN(c.latitude) || isNaN(c.longitude)) continue
+                path.push([c.latitude, c.longitude])
+            }
+
+            var record = { bdid: a.bdid, path: path }
+            if (a.heightMeters !== undefined && isFinite(Number(a.heightMeters)) && Number(a.heightMeters) > 0) {
+                record.heightMeters = Number(a.heightMeters)
+            }
+            if (a.minHeightMeters !== undefined && isFinite(Number(a.minHeightMeters)) && Number(a.minHeightMeters) > 0) {
+                record.minHeightMeters = Number(a.minHeightMeters)
+            }
+            if (a.levels !== undefined && isFinite(Number(a.levels)) && Number(a.levels) > 0) {
+                record.levels = Number(a.levels)
+            }
+
+            out.push(record)
+        }
+        return JSON.stringify(out)
+    }
+
+    function _restoreBuildingsDenseFromJson(jsonText) {
+        var arr
+        try {
+            arr = JSON.parse(jsonText || "[]")
+        } catch (e) {
+            console.warn("[BuildingDense] JSON parse failed:", e)
+            arr = []
+        }
+
+        editorMap.buildingsDense = []
+        editorMap.selectedBuildingDenseId = -1
+        editorMap.buildingDenseEditMode = false
+        // Ensure loaded buildings are visible even if user previously toggled the layer off.
+        editorMap.showBuildingLayer = true
+        editorMap.buildingDenseNextId = 1
+        editorMap.buildingRestoreLoading = false
+        editorMap.buildingRestoreLoadedCount = 0
+        editorMap.buildingRestoreTargetCount = 0
+        if (buildingRestoreTimer.running) {
+            buildingRestoreTimer.stop()
+        }
+
+        var maxId = 0
+        for (var ai = 0; ai < arr.length; ai++) {
+            if (arr[ai] && arr[ai].bdid && arr[ai].bdid > maxId) {
+                maxId = arr[ai].bdid
+            }
+        }
+        _buildingRestoreMaxId = maxId
+
+        // Restore all buildings by default; keep a very high hard cap only for extreme datasets.
+        // Startup responsiveness is handled by chunked creation below.
+        var loadLimit = 20000
+        var restoreCount = Math.min(arr.length, loadLimit)
+        if (arr.length > restoreCount) {
+            console.warn("[BuildingDense] dataset too large:", arr.length,
+                         "loading first", restoreCount, "(hard cap)")
+        }
+        _buildingRestoreTotalInSettings = arr.length
+        editorMap.buildingRestoreTargetCount = restoreCount
+
+        if (restoreCount <= 0) {
+            _finalizeBuildingsDenseRestore(arr.length)
+            return
+        }
+
+        // Small datasets can be restored synchronously.
+        if (restoreCount <= 120) {
+            var restoredAreas = []
+            editorMap.buildingRestoreLoading = true
+            for (var i = 0; i < restoreCount; i++) {
+                var syncArea = _createBuildingDenseObject(arr[i], i)
+                if (syncArea) restoredAreas.push(syncArea)
+            }
+            editorMap.buildingsDense = editorMap.buildingsDense.concat(restoredAreas)
+            editorMap.buildingRestoreLoadedCount = restoreCount
+            _finalizeBuildingsDenseRestore(arr.length)
+            return
+        }
+
+        // Large datasets are restored in batches to avoid blocking first render.
+        _buildingRestoreArr = arr
+        _buildingRestoreCount = restoreCount
+        _buildingRestoreCursor = 0
+        editorMap.buildingRestoreLoading = true
+        editorMap.buildingRestoreLoadedCount = 0
+        buildingRestoreTimer.start()
+    }
+
+    function saveBuildingsDenseGlobal() {
+        editorMap._scheduleRegionVisibleAreasRefresh()
+        _cachedBuildingAreasForCppSourceRef = null
+        _syncPathOptimizationStateToCpp()
+        if (!_buildingPersistenceDisabledLogged) {
+            console.log("[BuildingDense] persistence disabled; using", _buildingDenseDataUrl)
+            _buildingPersistenceDisabledLogged = true
+        }
+    }
+
+    function loadBuildingsDenseGlobal() {
+        console.log("[BuildingDense] restoring from resource", _buildingDenseDataUrl)
+        loadBuildingsDenseFromResource(_buildingDenseDataUrl)
+    }
+
+    function loadBuildingsDenseFromResource(url) {
+        var dataUrl = url || _buildingDenseDataUrl
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", dataUrl)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE) return
+            if (xhr.status !== 200 && xhr.status !== 0) {
+                console.warn("[BuildingDense] Failed to load", dataUrl, "status=", xhr.status)
+                _restoreBuildingsDenseFromJson("[]")
+                return
+            }
+            _restoreBuildingsDenseFromJson(xhr.responseText)
+        }
+        xhr.send()
+    }
+
     // =======================
     // Roads (GeoJSON) loader
     // =======================
@@ -301,18 +640,18 @@ Item {
         }
 
         console.log("[RoadLayer] parsed roads:", out.length)
-        console.log("[RoadLayer] bbox lat:", minLat, maxLat, "lon:", minLon, maxLon)
         return out
     }
-    function loadRoadsFromResource(url) {
-        console.log("[RoadLayer] loading:", url)
+    function loadRoadsFromResource(url, showAfterLoad) {
+        if (editorMap.roadsLoaded) {
+            editorMap.showRoadLayer = !!showAfterLoad
+            return
+        }
 
         var xhr = new XMLHttpRequest()
         xhr.open("GET", url)
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== XMLHttpRequest.DONE) return
-
-            console.log("[RoadLayer] xhr status=", xhr.status, "bytes=", (xhr.responseText ? xhr.responseText.length : 0))
 
             // status==0 常见于 qrc/本地读取
             if (xhr.status !== 200 && xhr.status !== 0) {
@@ -321,17 +660,41 @@ Item {
             }
 
             editorMap.roads = _parseRoadsFromGeoJSONText(xhr.responseText)
-            editorMap.showRoadLayer = true
-            // 强制跳到道路区域，方便验证“到底有没有画出来”
-            if (editorMap.roads && editorMap.roads.length > 0
-                    && editorMap.roads[0].path && editorMap.roads[0].path.length > 0) {
-                var c = editorMap.roads[0].path[0]
-                editorMap.center = c
-                editorMap.zoomLevel = Math.max(editorMap.zoomLevel, 16)
-                console.log("[RoadLayer] jump to:", c.latitude, c.longitude)
-            }
+            editorMap.roadsLoaded = true
+            editorMap.showRoadLayer = !!showAfterLoad
+            _syncPathOptimizationStateToCpp()
         }
         xhr.send()
+    }
+    Timer {
+        id: buildingRestoreTimer
+        interval: 4
+        repeat: true
+        running: false
+        onTriggered: {
+            var batchSize = _buildingRestoreBatchSize
+            var end = Math.min(_buildingRestoreCursor + batchSize, _buildingRestoreCount)
+            var batchAreas = []
+            for (var i = _buildingRestoreCursor; i < end; i++) {
+                var area = _createBuildingDenseObject(_buildingRestoreArr[i], i)
+                if (area) batchAreas.push(area)
+            }
+            if (batchAreas.length > 0) {
+                editorMap.buildingsDense = editorMap.buildingsDense.concat(batchAreas)
+            }
+            _buildingRestoreCursor = end
+            editorMap.buildingRestoreLoadedCount = _buildingRestoreCursor
+            if (_buildingRestoreCursor >= _buildingRestoreCount) {
+                stop()
+                _buildingRestoreArr = []
+                _finalizeBuildingsDenseRestore(_buildingRestoreTotalInSettings)
+            }
+        }
+    }
+    Timer {
+        id: buildingRestoreDoneToast
+        interval: 2200
+        repeat: false
     }
     property bool planControlColapsed: false
     readonly property int   _decimalPlaces:             8
@@ -588,67 +951,18 @@ Item {
         _missionController.insertLandItem(mapCenter(), nextIndex, true /* makeCurrentItem */)
     }
 
-    // Load towers once when PlanView root completes
+    // Load data once when PlanView root completes
     Component.onCompleted: {
-        console.log("[PlanView] LOADED DEBUG_MARKER_20260113_ABC123")
-        console.log('[PlanView] ===== Testing C++ Backend =====')
-        console.log('[PlanView] typeof PathOptimizationManager:', typeof PathOptimizationManager)
-        
-        // C++后端初始化（用于碰撞检测）
-        if (typeof PathOptimizationManager !== 'undefined') {
-            console.log('[PlanView] ✓✓✓ C++ backend IS AVAILABLE!')
-            console.log('[PlanView] Instance:', PathOptimizationManager)
-            console.log('[PlanView] Calling C++ loadDefaultTowers()...')
-            PathOptimizationManager.loadDefaultTowers()
-            PathOptimizationManager.loadDefaultConfig()
-            
-            // 测试C++ A*算法
-            try {
-                console.log('[PlanView] ===== Testing C++ A* Algorithm =====')
-                var testStart = QtPositioning.coordinate(22.710, 114.404, 100)
-                var testEnd = QtPositioning.coordinate(22.712, 114.408, 100)
-                
-                console.log('[Test] Original waypoint:', testStart.latitude.toFixed(6), testStart.longitude.toFixed(6))
-                console.log('[Test] Target waypoint:', testEnd.latitude.toFixed(6), testEnd.longitude.toFixed(6))
-                
-                // 计算原始信号强度
-                var origSignal = PathOptimizationManager.towerOptimizer.calculateSignalStrength(testStart)
-                console.log('[Test] Original signal strength:', origSignal.toFixed(4))
-                
-                // 运行C++ A*优化
-                console.log('[Test] Running C++ A* optimization...')
-                var optimized = PathOptimizationManager.towerOptimizer.optimizeSingleWaypoint(testStart, testEnd, 100)
-                console.log('[Test] Optimized waypoint:', optimized.latitude.toFixed(6), optimized.longitude.toFixed(6))
-                
-                // 计算优化后的信号强度
-                var optSignal = PathOptimizationManager.towerOptimizer.calculateSignalStrength(optimized)
-                console.log('[Test] Optimized signal strength:', optSignal.toFixed(4))
-                
-                // 计算改善百分比
-                var improvement = ((optSignal - origSignal) / Math.max(origSignal, 0.0001) * 100)
-                console.log('[Test] Signal improvement:', improvement.toFixed(1), '%')
-                
-                // 计算移动距离
-                var moved = testStart.distanceTo(optimized)
-                console.log('[Test] Waypoint moved:', moved.toFixed(2), 'meters')
-                
-                console.log('[Test] ===== C++ A* Test Complete =====')
-            } catch(e) {
-                console.error('[Test] C++ A* test failed:', e.toString())
-            }
-        } else {
-            console.log('[PlanView] ✗✗✗ C++ backend NOT available')
-        }
-        
-        // JavaScript数据加载（用于信号计算和路径优化）
-        console.log('[PlanView] Loading JavaScript towers data...')
+        // JavaScript data load (also initializes C++ backend through TowerOptimize.js).
         TowerOpt.loadTowers()
-        // Restore global greenlands
-        loadGreenlandsGlobal()
-        loadWatersGlobal()
-        _pushRegionAttractorsToCpp()
-        loadRoadsFromResource("qrc:/roads/export.geojson")
-
+        // Defer heavy region restore to next event loop tick so UI can render first.
+        Qt.callLater(function() {
+            // Restore persisted regions. Roads are loaded lazily when user enables road layer.
+            loadGreenlandsGlobal()
+            loadWatersGlobal()
+            loadBuildingsDenseGlobal()
+            _pushRegionAttractorsToCpp()
+        })
     }
 
 
@@ -703,9 +1017,98 @@ Item {
             // Road layer state
             // =======================
             property bool showRoadLayer: false
+            property bool roadsLoaded: false
             property var roads: []
             zoomLevel:                  QGroundControl.flightMapZoom
             center:                     QGroundControl.flightMapPosition
+
+            // =======================
+            // Region layer visibility
+            // =======================
+            property bool showGreenlandLayer: true
+            property bool showWaterLayer: true
+            property bool showBuildingLayer: true
+            property bool showGreenlandLabels: false
+            property bool showWaterLabels: false
+            property bool showBuildingLabels: false
+            property color greenlandOuterFillColor: "#182E7A24"
+            property color greenlandMidFillColor: "#24409A30"
+            property color greenlandInnerFillColor: "#365FC544"
+            property color greenlandSelectedOuterFillColor: "#203B8F2B"
+            property color greenlandSelectedMidFillColor: "#3254B43A"
+            property color greenlandSelectedInnerFillColor: "#4878D856"
+            property color greenlandBorderGlowColor: "#709CFF7A"
+            property color greenlandBorderColor: "#63D94E"
+            property color greenlandSelectedBorderColor: "#E9FFD9"
+            property color greenlandLabelColor: "#C0104712"
+            property color greenlandSelectedLabelColor: "#D7286A2B"
+            property color greenlandHandleColor: "#B8FFB0"
+            property color greenlandHandleBorderColor: "#286D24"
+            property int regionLayerCullPaddingPx: 120
+            property bool buildingRestoreLoading: false
+            property int buildingRestoreLoadedCount: 0
+            property int buildingRestoreTargetCount: 0
+            property bool _regionVisibleAreasRefreshQueued: false
+
+            ListModel {
+                id: visibleGreenlandsModel
+                dynamicRoles: true
+            }
+
+            ListModel {
+                id: visibleWatersModel
+                dynamicRoles: true
+            }
+
+            ListModel {
+                id: visibleBuildingsDenseModel
+                dynamicRoles: true
+            }
+
+            function _scheduleRegionVisibleAreasRefresh() {
+                _regionVisibleAreasRefreshQueued = true
+                _regionVisibleAreasRefreshTimer.restart()
+            }
+
+            function _refreshRegionVisibleAreas() {
+                _regionVisibleAreasRefreshQueued = false
+                _syncVisibleAreaModel(
+                    visibleGreenlandsModel,
+                    showGreenlandLayer ? greenlands : [],
+                    regionLayerCullPaddingPx,
+                    selectedGreenlandId,
+                    "gid"
+                )
+                _syncVisibleAreaModel(
+                    visibleWatersModel,
+                    showWaterLayer ? waters : [],
+                    regionLayerCullPaddingPx,
+                    selectedWaterId,
+                    "wid"
+                )
+                _syncVisibleAreaModel(
+                    visibleBuildingsDenseModel,
+                    showBuildingLayer ? buildingsDense : [],
+                    regionLayerCullPaddingPx,
+                    selectedBuildingDenseId,
+                    "bdid"
+                )
+            }
+
+            Timer {
+                id: _regionVisibleAreasRefreshTimer
+                interval: 180
+                repeat: false
+                onTriggered: editorMap._refreshRegionVisibleAreas()
+            }
+
+            function toggleAllRegions() {
+                var anyOn = showGreenlandLayer || showWaterLayer || showBuildingLayer
+                var v = !anyOn
+                showGreenlandLayer = v
+                showWaterLayer = v
+                showBuildingLayer = v
+            }
 
             // This is the center rectangle of the map which is not obscured by tools
             property rect centerViewport:   Qt.rect(_leftToolWidth + _margin,  _margin, editorMap.width - _leftToolWidth - _rightToolWidth - (_margin * 2), (terrainStatus.visible ? terrainStatus.y : height - _margin) - _margin)
@@ -717,16 +1120,28 @@ Item {
             // Initial map position duplicates Fly view position
             Component.onCompleted: {
                 editorMap.center = QGroundControl.flightMapPosition
+                editorMap._scheduleRegionVisibleAreasRefresh()
                 //editorMap._dumpPossibleMapHandles()
             }
 
             QGCMapPalette { id: mapPal; lightColors: editorMap.isSatelliteMap }
             onZoomLevelChanged: {
                 QGroundControl.flightMapZoom = zoomLevel
+                _scheduleRegionVisibleAreasRefresh()
             }
             onCenterChanged: {
                 QGroundControl.flightMapPosition = center
+                _scheduleRegionVisibleAreasRefresh()
             }
+            onWidthChanged: _scheduleRegionVisibleAreasRefresh()
+            onHeightChanged: _scheduleRegionVisibleAreasRefresh()
+            onRegionLayerCullPaddingPxChanged: _scheduleRegionVisibleAreasRefresh()
+            onShowGreenlandLayerChanged: _scheduleRegionVisibleAreasRefresh()
+            onShowWaterLayerChanged: _scheduleRegionVisibleAreasRefresh()
+            onShowBuildingLayerChanged: _scheduleRegionVisibleAreasRefresh()
+            onGreenlandsChanged: _scheduleRegionVisibleAreasRefresh()
+            onWatersChanged: _scheduleRegionVisibleAreasRefresh()
+            onBuildingsDenseChanged: _scheduleRegionVisibleAreasRefresh()
             
             function _vertexModel() {
                 var out = []
@@ -789,7 +1204,9 @@ Item {
                 anchors.fill: parent
 
                 // 关键：编辑模式下彻底禁用这层，避免抢事件
-                enabled: !editorMap.greenlandEditMode && !editorMap.waterEditMode
+                enabled: !editorMap.greenlandEditMode
+                    && !editorMap.waterEditMode
+                    && !editorMap.buildingDenseEditMode
                 preventStealing: true
                 propagateComposedEvents: true
 
@@ -839,6 +1256,22 @@ Item {
                 showSpecialVisual:  _missionController.isROIBeginCurrentItem
                 model:              _missionController.simpleFlightPathSegments
                 opacity:            _editingLayer == _layerMission ? 1 : editorMap._nonInteractiveOpacity
+                lineWidth:          9
+                lineZ:              QGroundControl.zOrderMapItems + 30
+                lineColor:          "#F2FFFFFF"
+                collisionLineColor: "#FFFFC9C9"
+                specialLineColor:   "#D8FFE8"
+            }
+
+            MissionLineView {
+                showSpecialVisual:  _missionController.isROIBeginCurrentItem
+                model:              _missionController.simpleFlightPathSegments
+                opacity:            _editingLayer == _layerMission ? 1 : editorMap._nonInteractiveOpacity
+                lineWidth:          4.5
+                lineZ:              QGroundControl.zOrderMapItems + 31
+                lineColor:          "#156DFF"
+                collisionLineColor: "#FF3B30"
+                specialLineColor:   "#19C15F"
             }
 
             // Direction arrows in waypoint lines
@@ -849,7 +1282,7 @@ Item {
                     fromCoord:      object ? object.coordinate1 : undefined
                     toCoord:        object ? object.coordinate2 : undefined
                     arrowPosition:  3
-                    z:              QGroundControl.zOrderWaypointLines + 1
+                    z:              QGroundControl.zOrderMapItems + 32
                 }
             }
 
@@ -889,26 +1322,42 @@ Item {
             // 1) Polygon (fill + border)
 
             MapItemView {
-                model: editorMap.greenlands
+                model: visibleGreenlandsModel
+                visible: editorMap.showGreenlandLayer
+                delegate: MapPolygon {
+                    property var area: areaRef
+                    property bool selected: area && (area.gid === editorMap.selectedGreenlandId)
 
+                    path: area && area.path ? area.path : []
+                    color: "transparent"
+                    border.width: selected ? 9 : 7
+                    border.color: editorMap.greenlandBorderGlowColor
+                    z: QGroundControl.zOrderWaypointLines + 4
+                    opacity: selected ? 0.95 : 0.72
+                }
+            }
+
+            MapItemView {
+                model: visibleGreenlandsModel
+                visible: editorMap.showGreenlandLayer
                 delegate: MapPolygon {
                     id: poly
-                    property var area: modelData
+                    property var area: areaRef
                     property bool selected: area && (area.gid === editorMap.selectedGreenlandId)
 
                     path: area && area.path ? area.path : []
 
-                    color: selected ? "#6600FF66" : "#3300FF00"
-                    border.width: selected ? 4 : 3
-                    border.color: selected ? "#00FF66" : "#00CC00"
+                    color: selected ? editorMap.greenlandSelectedOuterFillColor : editorMap.greenlandOuterFillColor
+                    border.width: selected ? 5 : 4
+                    border.color: selected ? editorMap.greenlandSelectedBorderColor : editorMap.greenlandBorderColor
 
                     z: QGroundControl.zOrderWaypointLines + 5
                     opacity: 1
 
-                    // 点击选中（并可选：自动进入编辑模式）
+                    // 编辑模式开启时，点击用于选中/插点
                     MouseArea {
                         anchors.fill: parent
-                        enabled: true
+                        enabled: editorMap.greenlandEditMode
                         preventStealing: true
                         propagateComposedEvents: false
                         onClicked: {
@@ -916,7 +1365,6 @@ Item {
                             if (!area) return
 
                             editorMap.selectedGreenlandId = area.gid
-                            editorMap.greenlandEditMode = true
 
                             // 仅在编辑模式下：点击边缘附近 => 插入顶点
                             if (editorMap.greenlandEditMode) {
@@ -929,12 +1377,45 @@ Item {
                     }
                 }
             }
+            MapItemView {
+                model: visibleGreenlandsModel
+                visible: editorMap.showGreenlandLayer
+                delegate: MapPolygon {
+                    property var area: areaRef
+                    property bool selected: area && (area.gid === editorMap.selectedGreenlandId)
+
+                    visible: area && area.path && area.path.length >= 3
+                    path: visible ? editorMap._scalePathTowardCenter(area.path, 0.82) : []
+                    color: selected ? editorMap.greenlandSelectedMidFillColor : editorMap.greenlandMidFillColor
+                    border.width: 0
+                    border.color: "transparent"
+                    z: QGroundControl.zOrderWaypointLines + 5.1
+                    opacity: 1
+                }
+            }
+            MapItemView {
+                model: visibleGreenlandsModel
+                visible: editorMap.showGreenlandLayer
+                delegate: MapPolygon {
+                    property var area: areaRef
+                    property bool selected: area && (area.gid === editorMap.selectedGreenlandId)
+
+                    visible: area && area.path && area.path.length >= 3
+                    path: visible ? editorMap._scalePathTowardCenter(area.path, 0.58) : []
+                    color: selected ? editorMap.greenlandSelectedInnerFillColor : editorMap.greenlandInnerFillColor
+                    border.width: 0
+                    border.color: "transparent"
+                    z: QGroundControl.zOrderWaypointLines + 5.2
+                    opacity: 1
+                }
+            }
             // 1.5) Label (Greenland 1/2/3...)
             MapItemView {
-                model: editorMap.greenlands
+                model: visibleGreenlandsModel
+                visible: editorMap.showGreenlandLayer && editorMap.showGreenlandLabels
 
                 delegate: MapQuickItem {
-                    property var area: modelData
+                    property var area: areaRef
                     property bool selected: area && (area.gid === editorMap.selectedGreenlandId)
 
                     visible: area && area.path && area.path.length >= 3
@@ -945,10 +1426,10 @@ Item {
                     anchorPoint.y: sourceItem.height + 6
 
                     sourceItem: Rectangle {
-                        color: selected ? "#CC00AA00" : "#AA000000"
-                        radius: 4
+                        color: selected ? editorMap.greenlandSelectedLabelColor : editorMap.greenlandLabelColor
+                        radius: 5
                         border.width: 1
-                        border.color: "#60FFFFFF"
+                        border.color: selected ? "#C8F7FFD8" : "#907FD26D"
                         implicitWidth: label.implicitWidth + 12
                         implicitHeight: label.implicitHeight + 8
 
@@ -964,13 +1445,13 @@ Item {
 
                     MouseArea {
                         anchors.fill: parent
+                        enabled: editorMap.greenlandEditMode
                         preventStealing: true
                         propagateComposedEvents: false
                         onClicked: {
                             mouse.accepted = true
                             if (area) {
                                 editorMap.selectedGreenlandId = area.gid
-                                editorMap.greenlandEditMode = true
                             }
                         }
                     }
@@ -979,6 +1460,7 @@ Item {
             // 2) Center handle (drag to move whole shape)
             MapItemView {
                 model: editorMap.greenlands
+                visible: editorMap.showGreenlandLayer
 
                 delegate: MapQuickItem {
                     property var area: modelData
@@ -996,14 +1478,14 @@ Item {
                         width: 20
                         height: 20
                         radius: 10
-                        color: "#FF00FF66"
+                        color: editorMap.greenlandHandleColor
                         border.width: 2
-                        border.color: "white"
+                        border.color: editorMap.greenlandHandleBorderColor
 
                         Text {
                             anchors.centerIn: parent
                             text: "M"
-                            color: "black"
+                            color: "#06363B"
                             font.pixelSize: 12
                             font.bold: true
                         }
@@ -1098,6 +1580,7 @@ Item {
                 model: (editorMap.greenlandEditMode && editorMap.selectedGreenlandId >= 0)
                     ? editorMap._vertexModel()
                     : []
+                visible: editorMap.showGreenlandLayer
 
                 delegate: MapQuickItem {
                     property int gid: modelData.gid
@@ -1122,9 +1605,9 @@ Item {
                         width: 16
                         height: 16
                         radius: 8
-                        color: "white"
+                        color: editorMap.greenlandHandleColor
                         border.width: 2
-                        border.color: "#00FF00"
+                        border.color: editorMap.greenlandHandleBorderColor
 
                         // 只用于 drag.target 的“视觉跟随”，释放时复位
                         property real _startX: 0
@@ -1579,11 +2062,11 @@ Item {
             // Water render + edit handles
             // =======================
             MapItemView {
-                model: editorMap.waters
-
+                model: visibleWatersModel
+                visible: editorMap.showWaterLayer
                 delegate: MapPolygon {
                     id: waterPoly
-                    property var area: modelData
+                    property var area: areaRef
                     property bool selected: area && (area.wid === editorMap.selectedWaterId)
 
                     path: area && area.path ? area.path : []
@@ -1596,6 +2079,7 @@ Item {
 
                     MouseArea {
                         anchors.fill: parent
+                        enabled: editorMap.waterEditMode
                         preventStealing: true
                         propagateComposedEvents: false
                         onClicked: {
@@ -1603,7 +2087,6 @@ Item {
                             if (!area) return
 
                             editorMap.selectedWaterId = area.wid
-                            editorMap.waterEditMode = true
 
                             var mapP = editorMap.mapFromItem(parent, mouse.x, mouse.y)
                             if (editorMap._insertWaterVertexAtClick(area, mapP)) {
@@ -1614,10 +2097,11 @@ Item {
                 }
             }
             MapItemView {
-                model: editorMap.waters
+                model: visibleWatersModel
+                visible: editorMap.showWaterLayer && editorMap.showWaterLabels
 
                 delegate: MapQuickItem {
-                    property var area: modelData
+                    property var area: areaRef
                     property bool selected: area && (area.wid === editorMap.selectedWaterId)
 
                     visible: area && area.path && area.path.length >= 3
@@ -1647,13 +2131,13 @@ Item {
 
                     MouseArea {
                         anchors.fill: parent
+                        enabled: editorMap.waterEditMode
                         preventStealing: true
                         propagateComposedEvents: false
                         onClicked: {
                             mouse.accepted = true
                             if (area) {
                                 editorMap.selectedWaterId = area.wid
-                                editorMap.waterEditMode = true
                             }
                         }
                     }
@@ -1661,7 +2145,7 @@ Item {
             }
             MapItemView {
                 model: editorMap.waters
-
+                visible: editorMap.showWaterLayer
                 delegate: MapQuickItem {
                     property var area: modelData
                     property bool selected: area && (area.wid === editorMap.selectedWaterId)
@@ -1764,7 +2248,7 @@ Item {
                 model: (editorMap.waterEditMode && editorMap.selectedWaterId >= 0)
                     ? editorMap._waterVertexModel()
                     : []
-
+                visible: editorMap.showWaterLayer
                 delegate: MapQuickItem {
                     property int wid: modelData.wid
                     property int vidx: modelData.vidx
@@ -1885,7 +2369,335 @@ Item {
                     }
                 }
             }
+            //Buildingdense
+            MapItemView {
+                model: visibleBuildingsDenseModel
+                visible: editorMap.showBuildingLayer
+                delegate: MapPolygon {
+                    id: bdPoly
+                    property var area: areaRef
+                    property bool selected: area && (area.bdid === editorMap.selectedBuildingDenseId)
+                    property bool hasHeight: area && (
+                        Number(area.heightMeters || 0) > 0
+                        || Number(area.minHeightMeters || 0) > 0
+                        || Number(area.levels || 0) > 0)
 
+                    path: area && area.path ? area.path : []
+
+                    color: selected
+                        ? (hasHeight ? "#668C52FF" : "#66FF8800")
+                        : (hasHeight ? "#338C52FF" : "#33FF8800")
+                    border.width: selected ? 4 : 3
+                    border.color: selected
+                        ? (hasHeight ? "#FFD8C3FF" : "#FFFFAA00")
+                        : (hasHeight ? "#FF7A46D9" : "#FFCC7700")
+
+                    z: QGroundControl.zOrderWaypointLines + 5
+
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: editorMap.buildingDenseEditMode
+                        preventStealing: true
+                        propagateComposedEvents: false
+                        onClicked: {
+                            mouse.accepted = true
+                            if (!area) return
+
+                            editorMap.selectedBuildingDenseId = area.bdid
+
+                            var mapP = editorMap.mapFromItem(parent, mouse.x, mouse.y)
+                            if (editorMap._insertBuildingDenseVertexAtClick(area, mapP)) {
+                                saveBuildingsDenseGlobal()
+                            }
+                        }
+                    }
+                }
+            }
+
+            MapItemView {
+                model: visibleBuildingsDenseModel
+                visible: editorMap.showBuildingLayer && editorMap.showBuildingLabels
+
+                delegate: MapQuickItem {
+                    property var area: areaRef
+                    property bool selected: area && (area.bdid === editorMap.selectedBuildingDenseId)
+                    property bool hasHeight: area && (
+                        Number(area.heightMeters || 0) > 0
+                        || Number(area.minHeightMeters || 0) > 0
+                        || Number(area.levels || 0) > 0)
+
+                    visible: area && area.path && area.path.length >= 3
+                    z: QGroundControl.zOrderWaypointLines + 6
+                    coordinate: visible ? editorMap._pathCenter(area.path) : QtPositioning.coordinate()
+
+                    anchorPoint.x: sourceItem.width / 2
+                    anchorPoint.y: sourceItem.height + 6
+
+                    sourceItem: Rectangle {
+                        color: selected
+                            ? (hasHeight ? "#CC8C52FF" : "#CCFF8800")
+                            : (hasHeight ? "#AA5A33B4" : "#AA000000")
+                        radius: 4
+                        border.width: 1
+                        border.color: "#60FFFFFF"
+                        implicitWidth: label.implicitWidth + 12
+                        implicitHeight: label.implicitHeight + 8
+
+                        Text {
+                            id: label
+                            anchors.centerIn: parent
+                            text: qsTr("Building%1").arg(area ? area.bdid : 0)
+                            color: "white"
+                            font.pixelSize: 12
+                            font.bold: true
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: editorMap.buildingDenseEditMode
+                        preventStealing: true
+                        propagateComposedEvents: false
+                        onClicked: {
+                            mouse.accepted = true
+                            if (area) {
+                                editorMap.selectedBuildingDenseId = area.bdid
+                            }
+                        }
+                    }
+                }
+            }
+
+            MapItemView {
+                model: editorMap.buildingsDense
+                visible: editorMap.showBuildingLayer
+
+                delegate: MapQuickItem {
+                    property var area: modelData
+                    property bool selected: area && (area.bdid === editorMap.selectedBuildingDenseId)
+
+                    visible: editorMap.buildingDenseEditMode && selected && area && area.path && area.path.length >= 3
+                    z: QGroundControl.zOrderWaypointLines + 7
+                    coordinate: visible ? editorMap._pathCenter(area.path) : QtPositioning.coordinate()
+
+                    anchorPoint.x: 10
+                    anchorPoint.y: 10
+
+                    sourceItem: Rectangle {
+                        width: 20
+                        height: 20
+                        radius: 10
+                        color: "#FFFFCC66"
+                        border.width: 2
+                        border.color: "white"
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "B"
+                            color: "black"
+                            font.pixelSize: 12
+                            font.bold: true
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            preventStealing: true
+                            propagateComposedEvents: false
+                            cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+
+                            property var startPath
+                            property var refCenterCoord
+                            property point pressMouseMapPx
+                            property point pressCenterMapPx
+                            property point dragOffsetPx
+
+                            onPressed: {
+                                mouse.accepted = true
+                                editorMap._dragInProgress = true
+                                editorMap._setMapInteractiveForBuildingDenseDrag(false)
+
+                                editorMap.selectedBuildingDenseId = area.bdid
+                                editorMap.buildingDenseEditMode = true
+
+                                startPath = area.path.slice(0)
+                                refCenterCoord = editorMap._pathCenter(startPath)
+
+                                pressMouseMapPx = editorMap.mapFromItem(parent, mouse.x, mouse.y)
+                                pressCenterMapPx = editorMap.fromCoordinate(refCenterCoord, false)
+
+                                dragOffsetPx = Qt.point(
+                                    pressMouseMapPx.x - pressCenterMapPx.x,
+                                    pressMouseMapPx.y - pressCenterMapPx.y
+                                )
+                            }
+
+                            onPositionChanged: {
+                                if (!pressed) return
+                                mouse.accepted = true
+                                if (!startPath || startPath.length < 3) return
+
+                                var mouseMapPx = editorMap.mapFromItem(parent, mouse.x, mouse.y)
+                                var newCenterPx = Qt.point(
+                                    mouseMapPx.x - dragOffsetPx.x,
+                                    mouseMapPx.y - dragOffsetPx.y
+                                )
+
+                                var newCenterCoord = editorMap.toCoordinate(newCenterPx, false)
+                                if (!newCenterCoord || isNaN(newCenterCoord.latitude) || isNaN(newCenterCoord.longitude)) return
+
+                                var dLat = newCenterCoord.latitude - refCenterCoord.latitude
+                                var dLon = newCenterCoord.longitude - refCenterCoord.longitude
+
+                                var moved = []
+                                for (var i = 0; i < startPath.length; i++) {
+                                    moved.push(editorMap._translateCoord(startPath[i], dLat, dLon))
+                                }
+                                area.path = moved
+                            }
+
+                            onReleased: {
+                                mouse.accepted = true
+                                saveBuildingsDenseGlobal()
+                                editorMap._dragInProgress = false
+                                editorMap._setMapInteractiveForBuildingDenseDrag(true)
+                            }
+
+                            onCanceled: {
+                                editorMap._dragInProgress = false
+                                editorMap._setMapInteractiveForBuildingDenseDrag(true)
+                            }
+                        }
+                    }
+                }
+            }
+            // BuildingDense Vertex handles (left-drag + right-delete)
+            MapItemView {
+                model: (editorMap.buildingDenseEditMode && editorMap.selectedBuildingDenseId >= 0)
+                    ? editorMap._buildingDenseVertexModel()
+                    : []
+                visible: editorMap.showBuildingLayer
+
+                delegate: MapQuickItem {
+                    property int bdid: modelData.bdid
+                    property int vidx: modelData.vidx
+                    property var area: modelData.areaRef
+
+                    visible: editorMap.buildingDenseEditMode
+                            && (bdid === editorMap.selectedBuildingDenseId)
+                            && area
+                            && area.path
+                            && area.path.length > vidx
+
+                    z: QGroundControl.zOrderWaypointLines + 21
+                    anchorPoint.x: 8
+                    anchorPoint.y: 8
+                    coordinate: visible ? area.path[vidx] : QtPositioning.coordinate()
+
+                    sourceItem: Rectangle {
+                        id: bdHandleRect
+                        width: 16
+                        height: 16
+                        radius: 8
+                        color: "white"
+                        border.width: 2
+                        border.color: "#FF8800"
+
+                        property real _startX: 0
+                        property real _startY: 0
+                        property bool _rightPressed: false
+                        property bool _draggingLeft: false
+
+                        MouseArea {
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            preventStealing: true
+                            propagateComposedEvents: false
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+
+                            drag.target: bdHandleRect
+                            drag.axis: Drag.XAndYAxis
+                            drag.minimumX: -100000
+                            drag.maximumX:  100000
+                            drag.minimumY: -100000
+                            drag.maximumY:  100000
+
+                            onPressed: {
+                                mouse.accepted = true
+
+                                bdHandleRect._startX = bdHandleRect.x
+                                bdHandleRect._startY = bdHandleRect.y
+
+                                bdHandleRect._rightPressed = (mouse.button === Qt.RightButton)
+                                bdHandleRect._draggingLeft = (mouse.button === Qt.LeftButton)
+
+                                // 右键删点
+                                if (bdHandleRect._rightPressed) {
+                                    bdHandleRect.x = bdHandleRect._startX
+                                    bdHandleRect.y = bdHandleRect._startY
+
+                                    if (!area || !area.path) return
+                                    if (area.path.length <= 3) {
+                                        console.log("[BuildingDense] cannot delete: polygon needs >= 3 vertices")
+                                        return
+                                    }
+
+                                    var pdel = area.path.slice(0)
+                                    pdel.splice(vidx, 1)
+                                    area.path = pdel
+                                    saveBuildingsDenseGlobal()
+                                    return
+                                }
+
+                                // 左键拖点：禁用地图手势，避免被 Map 抢 grab
+                                if (bdHandleRect._draggingLeft) {
+                                    editorMap._dragInProgress = true
+                                    editorMap._setMapInteractiveForBuildingDenseDrag(false)
+                                }
+                            }
+
+                            onPositionChanged: {
+                                if (!pressed) return
+                                mouse.accepted = true
+                                if (bdHandleRect._rightPressed) return
+                                if (!bdHandleRect._draggingLeft) return
+                                if (!area || !area.path || area.path.length <= vidx) return
+
+                                var mapP = editorMap.mapFromItem(bdHandleRect, bdHandleRect.width/2, bdHandleRect.height/2)
+                                var newCoord = editorMap.toCoordinate(mapP, false)
+                                if (!newCoord || isNaN(newCoord.latitude) || isNaN(newCoord.longitude)) return
+
+                                var p = area.path.slice(0)
+                                p[vidx] = newCoord
+                                area.path = p
+                            }
+
+                            onReleased: {
+                                mouse.accepted = true
+                                bdHandleRect.x = bdHandleRect._startX
+                                bdHandleRect.y = bdHandleRect._startY
+
+                                if (bdHandleRect._draggingLeft) saveBuildingsDenseGlobal()
+
+                                bdHandleRect._rightPressed = false
+                                bdHandleRect._draggingLeft = false
+
+                                editorMap._dragInProgress = false
+                                editorMap._setMapInteractiveForBuildingDenseDrag(true)
+                            }
+
+                            onCanceled: {
+                                bdHandleRect.x = bdHandleRect._startX
+                                bdHandleRect.y = bdHandleRect._startY
+                                bdHandleRect._rightPressed = false
+                                bdHandleRect._draggingLeft = false
+
+                                editorMap._dragInProgress = false
+                                editorMap._setMapInteractiveForBuildingDenseDrag(true)
+                            }
+                        }
+                    }
+                }
+            }
             // UI for splitting the current segment
             MapQuickItem {
                 id:             splitSegmentItem
@@ -2128,6 +2940,7 @@ Item {
             property var greenlands: []   
             property int greenlandNextId: 1
             property int selectedGreenlandId: -1
+            onSelectedGreenlandIdChanged: _scheduleRegionVisibleAreasRefresh()
 
             function _metersToLat(m) { return m / 111320.0 }
             function _metersToLon(m, lat) { return m / (111320.0 * Math.cos(lat * Math.PI / 180.0)) }
@@ -2172,6 +2985,107 @@ Item {
                 }
                 return pts
             }
+            function _pathScreenBounds(path) {
+                if (!path || path.length === 0) return null
+
+                var minX =  1e30
+                var minY =  1e30
+                var maxX = -1e30
+                var maxY = -1e30
+                var validCount = 0
+
+                for (var i = 0; i < path.length; i++) {
+                    var p = editorMap.fromCoordinate(path[i], false)
+                    if (!p || isNaN(p.x) || isNaN(p.y)) continue
+                    if (p.x < minX) minX = p.x
+                    if (p.y < minY) minY = p.y
+                    if (p.x > maxX) maxX = p.x
+                    if (p.y > maxY) maxY = p.y
+                    validCount++
+                }
+
+                if (validCount === 0) return null
+                return { minX: minX, minY: minY, maxX: maxX, maxY: maxY }
+            }
+            function _pathIntersectsViewport(path, padPx) {
+                var bounds = _pathScreenBounds(path)
+                if (!bounds) return false
+
+                var pad = (typeof padPx === "number") ? padPx : 0
+                return bounds.maxX >= -pad
+                    && bounds.minX <= editorMap.width + pad
+                    && bounds.maxY >= -pad
+                    && bounds.minY <= editorMap.height + pad
+            }
+            function _visibleAreas(areas, padPx, selectedId, idKey) {
+                var out = []
+                if (!areas) return out
+
+                for (var i = 0; i < areas.length; i++) {
+                    var area = areas[i]
+                    if (!area || !area.path || area.path.length < 3) continue
+
+                    var isSelected = selectedId >= 0 && area[idKey] === selectedId
+                    if (isSelected || _pathIntersectsViewport(area.path, padPx)) {
+                        out.push(area)
+                    }
+                }
+
+                return out
+            }
+            function _clearVisibleAreaModel(model) {
+                if (model && model.count > 0) {
+                    model.clear()
+                }
+            }
+            function _syncVisibleAreaModel(model, areas, padPx, selectedId, idKey) {
+                if (!model) return
+
+                var nextAreas = _visibleAreas(areas, padPx, selectedId, idKey)
+                if (!nextAreas || nextAreas.length === 0) {
+                    _clearVisibleAreaModel(model)
+                    return
+                }
+
+                var nextIds = {}
+                for (var ni = 0; ni < nextAreas.length; ni++) {
+                    nextIds[nextAreas[ni][idKey]] = true
+                }
+
+                for (var ci = model.count - 1; ci >= 0; ci--) {
+                    var currentEntry = model.get(ci)
+                    if (!nextIds[currentEntry.areaId]) {
+                        model.remove(ci)
+                    }
+                }
+
+                var modelIndex = 0
+                for (var i = 0; i < nextAreas.length; i++) {
+                    var nextArea = nextAreas[i]
+                    var nextId = nextArea[idKey]
+
+                    if (modelIndex < model.count) {
+                        var existingEntry = model.get(modelIndex)
+                        if (existingEntry.areaId === nextId) {
+                            if (existingEntry.areaRef !== nextArea) {
+                                model.setProperty(modelIndex, "areaRef", nextArea)
+                            }
+                            modelIndex++
+                            continue
+                        }
+                    }
+
+                    model.insert(modelIndex, {
+                        areaId: nextId,
+                        areaRef: nextArea
+                    })
+                    modelIndex++
+                }
+
+                while (model.count > nextAreas.length) {
+                    model.remove(model.count - 1)
+                }
+            }
             function _pathCenter(path) {
                 var lat = 0, lon = 0
                 for (var i = 0; i < path.length; i++) {
@@ -2179,6 +3093,22 @@ Item {
                     lon += path[i].longitude
                 }
                 return QtPositioning.coordinate(lat / path.length, lon / path.length)
+            }
+            function _scalePathTowardCenter(path, factor) {
+                var out = []
+                if (!path || path.length < 3) return out
+
+                var center = _pathCenter(path)
+                var f = Math.max(0.05, Math.min(1.0, factor))
+                for (var i = 0; i < path.length; i++) {
+                    var p = path[i]
+                    out.push(QtPositioning.coordinate(
+                        center.latitude + (p.latitude - center.latitude) * f,
+                        center.longitude + (p.longitude - center.longitude) * f,
+                        p.altitude
+                    ))
+                }
+                return out
             }
             function _translateCoord(coord, dLat, dLon) {
                 return QtPositioning.coordinate(coord.latitude + dLat, coord.longitude + dLon, coord.altitude)
@@ -2308,6 +3238,7 @@ Item {
             property var waters: []
             property int waterNextId: 1
             property int selectedWaterId: -1
+            onSelectedWaterIdChanged: _scheduleRegionVisibleAreasRefresh()
 
             function _waterVertexModel() {
                 var out = []
@@ -2434,6 +3365,143 @@ Item {
             function exitWaterEditMode() {
                 waterEditMode = false
             }
+            // =======================
+            // BuildingDense editor (multi polygons)
+            // =======================
+            property bool buildingDenseEditMode: false
+            property var buildingsDense: []
+            property int buildingDenseNextId: 1
+            property int selectedBuildingDenseId: -1
+            onSelectedBuildingDenseIdChanged: _scheduleRegionVisibleAreasRefresh()
+
+            function _buildingDenseVertexModel() {
+                var out = []
+                if (!buildingsDense) return out
+
+                for (var bi = 0; bi < buildingsDense.length; bi++) {
+                    var area = buildingsDense[bi]
+                    if (!area || !area.path || area.path.length < 3) continue
+
+                    for (var vi = 0; vi < area.path.length; vi++) {
+                        out.push({
+                            bdid: area.bdid,
+                            vidx: vi,
+                            areaRef: area
+                        })
+                    }
+                }
+                return out
+            }
+
+            function addBuildingDense() {
+                var rect = _makeRectInView(240, 180)
+
+                var area = Qt.createQmlObject(
+                    "import QGroundControl.Building 1.0; BuildingDense {}",
+                    editorMap,
+                    "BuildingDense" + buildingDenseNextId
+                )
+
+                area.bdid = buildingDenseNextId
+                area.path = rect
+
+                buildingDenseNextId += 1
+                buildingsDense = buildingsDense.concat([area])
+
+                selectedBuildingDenseId = area.bdid
+                buildingDenseEditMode = true
+
+                console.log("[BuildingDense] created bdid=", area.bdid, "pathCount=", area.path.length)
+                saveBuildingsDenseGlobal()
+            }
+
+            function removeSelectedBuildingDense() {
+                if (!buildingsDense || buildingsDense.length === 0) return
+
+                var removeId = selectedBuildingDenseId
+                if (removeId < 0) removeId = buildingsDense[buildingsDense.length - 1].bdid
+
+                var arr = []
+                for (var i = 0; i < buildingsDense.length; i++) {
+                    if (buildingsDense[i].bdid !== removeId) arr.push(buildingsDense[i])
+                }
+                buildingsDense = arr
+
+                selectedBuildingDenseId = buildingsDense.length
+                    ? buildingsDense[buildingsDense.length - 1].bdid
+                    : -1
+
+                if (buildingsDense.length === 0) buildingDenseEditMode = false
+                saveBuildingsDenseGlobal()
+            }
+
+            function exitBuildingDenseEditMode() {
+                buildingDenseEditMode = false
+            }
+
+            // 点击边插点：复用你 Greenland 的 _projectPointToSegment 实现
+            function _insertBuildingDenseVertexAtClick(area, mapPx) {
+                if (!area || !area.path || area.path.length < 3) return false
+
+                var pts = []
+                for (var i = 0; i < area.path.length; i++) {
+                    pts.push(fromCoordinate(area.path[i], false))
+                }
+
+                var bestEdge = -1
+                var bestD2 = 1e30
+                var bestFoot = null
+
+                for (var j = 0; j < pts.length; j++) {
+                    var A = pts[j]
+                    var B = pts[(j + 1) % pts.length]
+                    var pr = _projectPointToSegment(mapPx, A, B)
+                    if (pr.d2 < bestD2) {
+                        bestD2 = pr.d2
+                        bestEdge = j
+                        bestFoot = pr.foot
+                    }
+                }
+
+                var threshold = 12
+                if (bestEdge < 0 || bestD2 > threshold * threshold) return false
+
+                var newCoord = toCoordinate(bestFoot, false)
+                if (!newCoord || isNaN(newCoord.latitude) || isNaN(newCoord.longitude)) return false
+
+                var p = area.path.slice(0)
+                p.splice(bestEdge + 1, 0, newCoord)
+                area.path = p
+                return true
+            }
+
+            function _setMapInteractiveForBuildingDenseDrag(enable) {
+                // 复制你 Greenland 的兼容策略
+                try {
+                    if (enable) {
+                        interactive = _savedMapInteractive
+                    } else {
+                        _savedMapInteractive = interactive
+                        interactive = false
+                    }
+                    return
+                } catch (e) { }
+
+                try {
+                    if (gestures) {
+                        gestures.enabled = enable
+                        return
+                    }
+                } catch (e2) { }
+
+                try {
+                    if (enable) {
+                        if (map) map.interactive = true
+                    } else {
+                        if (map) map.interactive = false
+                    }
+                } catch (e3) { }
+            }
   
         }
 
@@ -2495,6 +3563,15 @@ Item {
                         enabled:            toolStrip._isRallyLayer ? true : _missionController.flyThroughCommandsAllowed
                         visible:            toolStrip._isRallyLayer || toolStrip._isMissionLayer
                         checkable:          true
+                        onTriggered: {
+                            // Entering waypoint-add mode should exit custom area edit modes,
+                            // otherwise the map click handler is intentionally disabled.
+                            if (checked) {
+                                editorMap.exitGreenlandEditMode()
+                                editorMap.exitWaterEditMode()
+                                editorMap.exitBuildingDenseEditMode()
+                            }
+                        }
                     },
                     ToolStripAction {
                         text:               _missionController.isROIActive ? qsTr("Cancel ROI") : qsTr("ROI")
@@ -2553,13 +3630,13 @@ Item {
                     ToolStripAction {
                         id: heatmapToggle
                         text: qsTr("Signal")
-                        iconSource: "/qmlimages/MapDrawShape.svg"
+                        iconSource: "/qmlimages/signal.svg"
                         checkable: true
                         checked: editorMap.showSignalStrengthLayer
                         visible: toolStrip._isMissionLayer
                         onTriggered: editorMap.showSignalStrengthLayer = !editorMap.showSignalStrengthLayer
                     },
-                    ToolStripAction {
+                    /*ToolStripAction {
                         id: astarDebugToggle
                         text: qsTr("A* Debug")
                         iconSource: "/qmlimages/MapCenter.svg"
@@ -2576,11 +3653,11 @@ Item {
                             }
                         }
                     }
-                    ,
+                    ,*/
                     ToolStripAction {
                         id: weatherToggle
                         text: qsTr("Weather")
-                        iconSource: "/qmlimages/MapDrawShape.svg"
+                        iconSource: "/qmlimages/weather.svg"
                         checkable: true
                         checked: editorMap.showWeatherLayer
                         visible: toolStrip._isMissionLayer
@@ -2594,16 +3671,25 @@ Item {
                     ToolStripAction {
                         id: greenlandAction
                         text: qsTr("Greenland")
-                        iconSource: "/qmlimages/MapDrawShape.svg"
+                        iconSource: "/qmlimages/greenland.svg"
                         enabled: true
                         visible: toolStrip._isMissionLayer
                         dropPanelComponent: greenlandDropPanel
                     }
                     ,
                     ToolStripAction {
+                        id: buildingDenseAction
+                        text: qsTr("Building")
+                        iconSource: "/qmlimages/building.svg"
+                        enabled: true
+                        visible: toolStrip._isMissionLayer
+                        dropPanelComponent: buildingDenseDropPanel
+                    }
+                    ,
+                    ToolStripAction {
                         id: waterAction
                         text: qsTr("Water")
-                        iconSource: "/qmlimages/MapDrawShape.svg"
+                        iconSource: "/qmlimages/water.svg"
                         enabled: true
                         visible: toolStrip._isMissionLayer
                         dropPanelComponent: waterDropPanel
@@ -2612,16 +3698,19 @@ Item {
                     ToolStripAction {
                         id: roadToggleAction
                         text: qsTr("Roads")
-                        iconSource: "/qmlimages/MapDrawShape.svg"   // 先复用一个现成图标，后续你想换再说
+                        iconSource: "/qmlimages/road.svg"   // 先复用一个现成图标，后续你想换再说
                         enabled: true
                         visible: toolStrip._isMissionLayer
                         checkable: true
                         checked: editorMap.showRoadLayer
 
                         onTriggered: {
-                            editorMap.showRoadLayer = !editorMap.showRoadLayer
-                            checked = editorMap.showRoadLayer   // 保险：让UI状态同步
-                            console.log("[RoadLayer] toggled:", editorMap.showRoadLayer)
+                            var next = !editorMap.showRoadLayer
+                            if (next && !editorMap.roadsLoaded) {
+                                loadRoadsFromResource("qrc:/roads/export.geojson", true)
+                            } else {
+                                editorMap.showRoadLayer = next
+                            }
                         }
                     }
 
@@ -2638,6 +3727,34 @@ Item {
             onDropped: allAddClickBoolsOff()
         }
         Rectangle {
+            id: buildingLoadStatusPanel
+            z: 10000
+            visible: editorMap.buildingRestoreLoading || buildingRestoreDoneToast.running
+            radius: 6
+            color: "#B0000000"
+            border.color: "#40FFFFFF"
+            border.width: 1
+
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: _toolsMargin
+
+            width: Math.min(parent.width * 0.7, ScreenTools.defaultFontPixelWidth * 58)
+            height: ScreenTools.defaultFontPixelHeight * 2.2
+
+            property int _loaded: Math.max(0, editorMap.buildingRestoreLoadedCount)
+            property int _total: Math.max(0, editorMap.buildingRestoreTargetCount)
+            property int _pct: _total > 0 ? Math.min(100, Math.floor((_loaded * 100) / _total)) : 100
+
+            QGCLabel {
+                anchors.centerIn: parent
+                color: "white"
+                text: editorMap.buildingRestoreLoading
+                      ? qsTr("Building loading: %1/%2 (%3%)").arg(buildingLoadStatusPanel._loaded).arg(buildingLoadStatusPanel._total).arg(buildingLoadStatusPanel._pct)
+                      : qsTr("Building loaded: %1").arg(buildingLoadStatusPanel._total)
+            }
+        }
+        Rectangle {
             id: weightPanel
             z: 9999
             radius: 6
@@ -2649,13 +3766,21 @@ Item {
             anchors.bottom: parent.bottom
             anchors.bottomMargin: _toolsMargin
 
+            /*width: Math.min(parent.width * 1, ScreenTools.defaultFontPixelWidth * 100)
+            height: ScreenTools.defaultFontPixelHeight * 15
+            visible: true */
             width: Math.min(parent.width * 1, ScreenTools.defaultFontPixelWidth * 100)
-            height: ScreenTools.defaultFontPixelHeight * 7.5
+            property bool weightsExpanded: true
+            readonly property real collapsedH: ScreenTools.defaultFontPixelHeight * 2.6
+            height: weightsExpanded ? (ScreenTools.defaultFontPixelHeight * 17.5) : collapsedH
             visible: true
-
             property real signalWeightLocal: 0.50
             property real distanceWeightLocal: 0.50
-
+            property real weatherWeightLocal: 0.50
+            property real greenlandWeightLocal: 0.50
+            property real buildingWeightLocal: 0.50
+            property real waterWeightLocal: 0.50
+            property real roadsWeightLocal: 0.50
             // 你要的“离边框空隙”就在这里调
             readonly property int sidePad: 24   // 左右留白
             readonly property int topPad: 16    // 上留白
@@ -2663,28 +3788,57 @@ Item {
 
             // label 固定宽度（保证两行严格对齐）
             readonly property int labelW: 220
+            // Header bar (always visible)
+            Item {
+                id: weightHeader
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: weightPanel.collapsedH
+
+                QGCLabel {
+                    anchors.centerIn: parent
+                    text: qsTr("Optimize Weights")
+                    color: "white"
+                    font.bold: true
+                }
+
+                QGCButton {
+                    anchors.right: parent.right
+                    anchors.rightMargin: weightPanel.sidePad
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: weightPanel.weightsExpanded ? qsTr("Hide") : qsTr("Show")
+                    onClicked: weightPanel.weightsExpanded = !weightPanel.weightsExpanded
+                }
+            }
 
             // 内容容器：用 anchors 硬做 padding，必生效
             Item {
                 id: content
-                anchors.fill: parent
+                /*anchors.fill: parent
                 anchors.leftMargin: weightPanel.sidePad
                 anchors.rightMargin: weightPanel.sidePad
                 anchors.topMargin: weightPanel.topPad
+                anchors.bottomMargin: weightPanel.bottomPad */
+                anchors.fill: parent
+                anchors.leftMargin: weightPanel.sidePad
+                anchors.rightMargin: weightPanel.sidePad
+                anchors.topMargin: weightPanel.collapsedH + weightPanel.topPad
                 anchors.bottomMargin: weightPanel.bottomPad
+                visible: weightPanel.weightsExpanded
 
                 ColumnLayout {
                     anchors.fill: parent
                     spacing: Math.round(ScreenTools.defaultFontPixelHeight * 0.6)
 
                     // 标题居中
-                    QGCLabel {
+                    /*QGCLabel {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
-                        text: qsTr("Tower Optimize Weights")
+                        text: qsTr("Optimize Weights")
                         color: "white"
                         font.bold: true
-                    }
+                    } */
 
                     // 两行严格对齐
                     GridLayout {
@@ -2816,7 +3970,266 @@ Item {
                                 distanceSlider.value = v
                             }
                         }
+                        // Row 3: Weather
+                        QGCLabel {
+                            Layout.preferredWidth: weightPanel.labelW
+                            Layout.minimumWidth: weightPanel.labelW
+                            Layout.maximumWidth: weightPanel.labelW
+                            verticalAlignment: Text.AlignVCenter
+                            text: qsTr("Weather")
+                            color: "white"
+                            elide: Text.ElideRight
+                        }
 
+                        Slider {
+                            id: weatherSlider
+                            Layout.fillWidth: true
+                            minimumValue: 0
+                            maximumValue: 1
+                            stepSize: 0.01
+                            value: weightPanel.weatherWeightLocal
+
+                            onValueChanged: {
+                                weightPanel.weatherWeightLocal = value
+                                PathOptimizationManager.weatherWeight = value
+                                if (!weatherInput.activeFocus) {
+                                    weatherInput.text = grid._fmt(value)
+                                }
+                            }
+                        }
+
+                        TextField {
+                            id: weatherInput
+                            Layout.preferredWidth: grid.inputW
+                            Layout.minimumWidth: grid.inputW
+                            Layout.maximumWidth: grid.inputW
+
+                            text: grid._fmt(weightPanel.weatherWeightLocal)
+
+                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            validator: DoubleValidator { bottom: 0; top: 1; decimals: 2 }
+
+                            onAccepted: {
+                                var v = grid._clamp01(parseFloat(text))
+                                text = grid._fmt(v)
+                                weatherSlider.value = v
+                                focus = false
+                            }
+
+                            onEditingFinished: {
+                                var v = grid._clamp01(parseFloat(text))
+                                text = grid._fmt(v)
+                                weatherSlider.value = v
+                            }
+                        }
+                        // Row 4: Greenland
+                        QGCLabel {
+                            Layout.preferredWidth: weightPanel.labelW
+                            Layout.minimumWidth: weightPanel.labelW
+                            Layout.maximumWidth: weightPanel.labelW
+                            verticalAlignment: Text.AlignVCenter
+                            text: qsTr("Greenland")
+                            color: "white"
+                            elide: Text.ElideRight
+                        }
+
+                        Slider {
+                            id: greenlandSlider
+                            Layout.fillWidth: true
+                            minimumValue: 0
+                            maximumValue: 1
+                            stepSize: 0.01
+                            value: weightPanel.greenlandWeightLocal
+
+                            onValueChanged: {
+                                weightPanel.greenlandWeightLocal = value
+                                PathOptimizationManager.greenlandWeight = value
+                                if (!greenlandInput.activeFocus) {
+                                    greenlandInput.text = grid._fmt(value)
+                                }
+                            }
+                        }
+
+                        TextField {
+                            id: greenlandInput
+                            Layout.preferredWidth: grid.inputW
+                            Layout.minimumWidth: grid.inputW
+                            Layout.maximumWidth: grid.inputW
+
+                            text: grid._fmt(weightPanel.greenlandWeightLocal)
+
+                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            validator: DoubleValidator { bottom: 0; top: 1; decimals: 2 }
+
+                            onAccepted: {
+                                var v = grid._clamp01(parseFloat(text))
+                                text = grid._fmt(v)
+                                greenlandSlider.value = v
+                                focus = false
+                            }
+
+                            onEditingFinished: {
+                                var v = grid._clamp01(parseFloat(text))
+                                text = grid._fmt(v)
+                                greenlandSlider.value = v
+                            }
+                        }
+                        // Row 5: Building
+                        QGCLabel {
+                            Layout.preferredWidth: weightPanel.labelW
+                            Layout.minimumWidth: weightPanel.labelW
+                            Layout.maximumWidth: weightPanel.labelW
+                            verticalAlignment: Text.AlignVCenter
+                            text: qsTr("Building")
+                            color: "white"
+                            elide: Text.ElideRight
+                        }
+
+                        Slider {
+                            id: buildingSlider
+                            Layout.fillWidth: true
+                            minimumValue: 0
+                            maximumValue: 1
+                            stepSize: 0.01
+                            value: weightPanel.buildingWeightLocal
+
+                            onValueChanged: {
+                                weightPanel.buildingWeightLocal = value
+                                PathOptimizationManager.buildingWeight = value
+                                if (!buildingInput.activeFocus) {
+                                    buildingInput.text = grid._fmt(value)
+                                }
+                            }
+                        }
+
+                        TextField {
+                            id: buildingInput
+                            Layout.preferredWidth: grid.inputW
+                            Layout.minimumWidth: grid.inputW
+                            Layout.maximumWidth: grid.inputW
+
+                            text: grid._fmt(weightPanel.buildingWeightLocal)
+
+                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            validator: DoubleValidator { bottom: 0; top: 1; decimals: 2 }
+
+                            onAccepted: {
+                                var v = grid._clamp01(parseFloat(text))
+                                text = grid._fmt(v)
+                                buildingSlider.value = v
+                                focus = false
+                            }
+
+                            onEditingFinished: {
+                                var v = grid._clamp01(parseFloat(text))
+                                text = grid._fmt(v)
+                                buildingSlider.value = v
+                            }
+                        }
+                        // Row 6: Water
+                        QGCLabel {
+                            Layout.preferredWidth: weightPanel.labelW
+                            Layout.minimumWidth: weightPanel.labelW
+                            Layout.maximumWidth: weightPanel.labelW
+                            verticalAlignment: Text.AlignVCenter
+                            text: qsTr("Water")
+                            color: "white"
+                            elide: Text.ElideRight
+                        }
+
+                        Slider {
+                            id: waterSlider
+                            Layout.fillWidth: true
+                            minimumValue: 0
+                            maximumValue: 1
+                            stepSize: 0.01
+                            value: weightPanel.waterWeightLocal
+
+                            onValueChanged: {
+                                weightPanel.waterWeightLocal = value
+                                PathOptimizationManager.waterWeight = value
+                                if (!waterInput.activeFocus) {
+                                    waterInput.text = grid._fmt(value)
+                                }
+                            }
+                        }
+
+                        TextField {
+                            id: waterInput
+                            Layout.preferredWidth: grid.inputW
+                            Layout.minimumWidth: grid.inputW
+                            Layout.maximumWidth: grid.inputW
+
+                            text: grid._fmt(weightPanel.waterWeightLocal)
+
+                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            validator: DoubleValidator { bottom: 0; top: 1; decimals: 2 }
+
+                            onAccepted: {
+                                var v = grid._clamp01(parseFloat(text))
+                                text = grid._fmt(v)
+                                waterSlider.value = v
+                                focus = false
+                            }
+
+                            onEditingFinished: {
+                                var v = grid._clamp01(parseFloat(text))
+                                text = grid._fmt(v)
+                                waterSlider.value = v
+                            }
+                        }
+                        // Row 7: Roads
+                        QGCLabel {
+                            Layout.preferredWidth: weightPanel.labelW
+                            Layout.minimumWidth: weightPanel.labelW
+                            Layout.maximumWidth: weightPanel.labelW
+                            verticalAlignment: Text.AlignVCenter
+                            text: qsTr("Roads")
+                            color: "white"
+                            elide: Text.ElideRight
+                        }
+
+                        Slider {
+                            id: roadsSlider
+                            Layout.fillWidth: true
+                            minimumValue: 0
+                            maximumValue: 1
+                            stepSize: 0.01
+                            value: weightPanel.roadsWeightLocal
+
+                            onValueChanged: {
+                                weightPanel.roadsWeightLocal = value
+                                PathOptimizationManager.roadWeight = value
+                                if (!roadsInput.activeFocus) {
+                                    roadsInput.text = grid._fmt(value)
+                                }
+                            }
+                        }
+
+                        TextField {
+                            id: roadsInput
+                            Layout.preferredWidth: grid.inputW
+                            Layout.minimumWidth: grid.inputW
+                            Layout.maximumWidth: grid.inputW
+
+                            text: grid._fmt(weightPanel.roadsWeightLocal)
+
+                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            validator: DoubleValidator { bottom: 0; top: 1; decimals: 2 }
+
+                            onAccepted: {
+                                var v = grid._clamp01(parseFloat(text))
+                                text = grid._fmt(v)
+                                roadsSlider.value = v
+                                focus = false
+                            }
+
+                            onEditingFinished: {
+                                var v = grid._clamp01(parseFloat(text))
+                                text = grid._fmt(v)
+                                roadsSlider.value = v
+                            }
+                        }
                         // 给上面函数一个对象名引用（QtQuick 2.3 下用 id 访问更稳）
                         id: grid
                     }
@@ -3148,7 +4561,9 @@ Item {
                 Layout.fillWidth: true
                 enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                 onClicked: {
+                    _syncPathOptimizationStateToCpp()
                     TowerOpt.optimizeMissionAStar(_missionController, _planMasterController, 0.2)
+                    _scheduleTerrainRecoveryPasses(3)
                     dropPanel.hide()
                 }
             }
@@ -3157,19 +4572,21 @@ Item {
                 Layout.fillWidth: true
                 enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                 onClicked: {
+                    _syncPathOptimizationStateToCpp()
                     TowerOpt.optimizeMissionRRT(_missionController, _planMasterController, 0.2)
                     dropPanel.hide()
                 }
             }
-            QGCButton {
+            /*QGCButton {
                 text: qsTr("A* New")
                 Layout.fillWidth: true
                 enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                 onClicked: {
+                    _syncPathOptimizationStateToCpp()
                     TowerOpt.optimizeMissionAStarNew(_missionController, _planMasterController, 0.2)
                     dropPanel.hide()
                 }
-            }
+            }*/
         }
     }
 
@@ -3189,7 +4606,7 @@ Item {
 
         Rectangle {
             width: 240
-            height: 240
+            height: 320
             clip: true
             color: "#CC000000"
             radius: 6
@@ -3226,7 +4643,24 @@ Item {
                         dropPanel.hide()
                     }
                 }
-
+                QGCButton {
+                    Layout.fillWidth: true
+                    text: editorMap.showGreenlandLayer ? qsTr("Hide Greenland") : qsTr("Show Greenland")
+                    onClicked: {
+                        editorMap.showGreenlandLayer = !editorMap.showGreenlandLayer
+                        // 可选：隐藏时退出编辑模式，避免“看不见但还在编辑”
+                        if (!editorMap.showGreenlandLayer) {
+                            editorMap.greenlandEditMode = false
+                        }
+                    }
+                }
+                QGCButton {
+                    Layout.fillWidth: true
+                    text: editorMap.showGreenlandLabels ? qsTr("Hide Labels") : qsTr("Show Labels")
+                    onClicked: {
+                        editorMap.showGreenlandLabels = !editorMap.showGreenlandLabels
+                    }
+                }
                 QGCCheckBox {
                     text: qsTr("Edit Mode")
                     checked: editorMap.greenlandEditMode
@@ -3295,7 +4729,7 @@ Item {
 
         Rectangle {
             width: 240
-            height: 240
+            height: 320
             clip: true
             color: "#CC000000"
             radius: 6
@@ -3331,7 +4765,23 @@ Item {
                         dropPanel.hide()
                     }
                 }
-
+                QGCButton {
+                    Layout.fillWidth: true
+                    text: editorMap.showWaterLayer ? qsTr("Hide Water") : qsTr("Show Water")
+                    onClicked: {
+                        editorMap.showWaterLayer = !editorMap.showWaterLayer
+                        if (!editorMap.showWaterLayer) {
+                            editorMap.waterEditMode = false
+                        }
+                    }
+                }
+                QGCButton {
+                    Layout.fillWidth: true
+                    text: editorMap.showWaterLabels ? qsTr("Hide Labels") : qsTr("Show Labels")
+                    onClicked: {
+                        editorMap.showWaterLabels = !editorMap.showWaterLabels
+                    }
+                }
                 QGCCheckBox {
                     text: qsTr("Edit Mode")
                     checked: editorMap.waterEditMode
@@ -3392,6 +4842,129 @@ Item {
 
                 QGCLabel {
                     text: qsTr("Count: %1").arg(editorMap.waters ? editorMap.waters.length : 0)
+                    color: "#CCFFFFFF"
+                }
+            }
+        }
+    }
+    Component {
+        id: buildingDenseDropPanel
+
+        Rectangle {
+            width: 240
+            height: 240
+            clip: true
+            color: "#CC000000"
+            radius: 6
+            border.color: "#40FF8800"
+            border.width: 1
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 10
+
+                QGCLabel {
+                    text: qsTr("BuildingDense Editor")
+                    color: "white"
+                    font.bold: true
+                }
+
+                QGCButton {
+                    text: qsTr("Add Rectangle")
+                    Layout.fillWidth: true
+                    onClicked: {
+                        editorMap.addBuildingDense()
+                        dropPanel.hide()
+                    }
+                }
+
+                QGCButton {
+                    text: qsTr("Remove Selected")
+                    Layout.fillWidth: true
+                    enabled: editorMap.buildingsDense && editorMap.buildingsDense.length > 0
+                    onClicked: {
+                        editorMap.removeSelectedBuildingDense()
+                        dropPanel.hide()
+                    }
+                }
+                QGCButton {
+                    Layout.fillWidth: true
+                    text: editorMap.showBuildingLayer ? qsTr("Hide Building") : qsTr("Show Building")
+                    onClicked: {
+                        editorMap.showBuildingLayer = !editorMap.showBuildingLayer
+                        if (!editorMap.showBuildingLayer) {
+                            editorMap.buildingDenseEditMode = false
+                        }
+                    }
+                }
+                QGCButton {
+                    Layout.fillWidth: true
+                    text: editorMap.showBuildingLabels ? qsTr("Hide Labels") : qsTr("Show Labels")
+                    onClicked: {
+                        editorMap.showBuildingLabels = !editorMap.showBuildingLabels
+                    }
+                }
+                QGCCheckBox {
+                    text: qsTr("Edit Mode")
+                    checked: editorMap.buildingDenseEditMode
+                    textColor: "white"
+                    onClicked: editorMap.buildingDenseEditMode = checked
+                }
+
+                QGCButton {
+                    text: qsTr("Exit Edit Mode")
+                    Layout.fillWidth: true
+                    enabled: editorMap.buildingDenseEditMode
+                    onClicked: {
+                        editorMap.exitBuildingDenseEditMode()
+                        dropPanel.hide()
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    QGCButton {
+                        text: qsTr("Prev")
+                        Layout.fillWidth: true
+                        enabled: editorMap.buildingsDense && editorMap.buildingsDense.length > 0
+                        onClicked: {
+                            var arr = editorMap.buildingsDense
+                            if (!arr || arr.length === 0) return
+
+                            var idx = 0
+                            for (var i = 0; i < arr.length; i++) {
+                                if (arr[i].bdid === editorMap.selectedBuildingDenseId) { idx = i; break }
+                            }
+                            idx = (idx - 1 + arr.length) % arr.length
+                            editorMap.selectedBuildingDenseId = arr[idx].bdid
+                            editorMap.buildingDenseEditMode = true
+                        }
+                    }
+
+                    QGCButton {
+                        text: qsTr("Next")
+                        Layout.fillWidth: true
+                        enabled: editorMap.buildingsDense && editorMap.buildingsDense.length > 0
+                        onClicked: {
+                            var arr = editorMap.buildingsDense
+                            if (!arr || arr.length === 0) return
+
+                            var idx = 0
+                            for (var i = 0; i < arr.length; i++) {
+                                if (arr[i].bdid === editorMap.selectedBuildingDenseId) { idx = i; break }
+                            }
+                            idx = (idx + 1) % arr.length
+                            editorMap.selectedBuildingDenseId = arr[idx].bdid
+                            editorMap.buildingDenseEditMode = true
+                        }
+                    }
+                }
+
+                QGCLabel {
+                    text: qsTr("Count: %1").arg(editorMap.buildingsDense ? editorMap.buildingsDense.length : 0)
                     color: "#CCFFFFFF"
                 }
             }

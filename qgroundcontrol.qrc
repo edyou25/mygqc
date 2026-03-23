@@ -361,6 +361,10 @@
     </qresource>
         <qresource prefix="/data">
             <file alias="towers.json">resources/towers.json</file>
+            <file alias="greenlands.json">resources/greenlands.json</file>
+            <file alias="waters.json">resources/waters.json</file>
+            <file alias="buildings_dense.json">resources/buildings_dense.json</file>
+            <file alias="buildings_optimizer.json">resources/buildings_optimizer.json</file>
         </qresource>
     <qresource prefix="/resources">
         <file alias="TowerOptimize_config.json">resources/TowerOptimize_config.json</file>

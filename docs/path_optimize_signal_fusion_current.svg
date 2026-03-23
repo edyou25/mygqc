@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="1500" viewBox="0 0 2200 1500">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#37474F"/>
+    </marker>
+    <style>
+      .title { font: 700 34px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #0D47A1; }
+      .subtitle { font: 500 18px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #455A64; }
+      .heading { font: 700 24px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #263238; }
+      .box-title { font: 700 18px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #102027; }
+      .box-text { font: 500 15px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #263238; }
+      .small { font: 500 13px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #455A64; }
+      .line { stroke: #37474F; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .panel { fill: #FAFAFA; stroke: #B0BEC5; stroke-width: 2; rx: 14; ry: 14; }
+      .start { fill: #E3F2FD; stroke: #1565C0; stroke-width: 2; rx: 14; ry: 14; }
+      .io { fill: #E8F5E9; stroke: #2E7D32; stroke-width: 2; rx: 14; ry: 14; }
+      .proc { fill: #FFF8E1; stroke: #F9A825; stroke-width: 2; rx: 14; ry: 14; }
+      .calc { fill: #F3E5F5; stroke: #7B1FA2; stroke-width: 2; rx: 14; ry: 14; }
+      .decision { fill: #FFF3E0; stroke: #EF6C00; stroke-width: 2; }
+      .out { fill: #E0F7FA; stroke: #006064; stroke-width: 2; rx: 14; ry: 14; }
+      .tag { font: 700 14px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #1B5E20; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="2200" height="1500" fill="#FFFFFF"/>
+  <text x="1100" y="54" text-anchor="middle" class="title">信号数据文件在算法中的实际用法（当前实现）</text>
+  <text x="1100" y="84" text-anchor="middle" class="subtitle">文件：interpolated_grid_fullcube.csv；代码路径：PathOptimization/TowerOptimizer</text>
+
+  <!-- Left side: load phase -->
+  <text x="70" y="138" class="heading">A. 启动加载阶段</text>
+
+  <rect class="start" x="60" y="165" width="620" height="92"/>
+  <text x="88" y="196" class="box-title">QML 初始化</text>
+  <text x="88" y="220" class="box-text">TowerOptimize.js 调用 pathOptManager.loadDefaultConfig()</text>
+  <text x="88" y="242" class="small">同时会先 loadDefaultTowers()</text>
+
+  <rect class="proc" x="60" y="285" width="620" height="116"/>
+  <text x="88" y="316" class="box-title">PathOptimizationManager::loadDefaultConfig</text>
+  <text x="88" y="340" class="box-text">1) 读取 TowerOptimize_config.json</text>
+  <text x="88" y="362" class="box-text">2) 自动调用 loadDefaultSignalGrid()</text>
+  <text x="88" y="384" class="small">候选路径包含 /docs/tower/interpolated_grid_fullcube.csv</text>
+
+  <polygon class="decision" points="370,435 535,503 370,571 205,503"/>
+  <text x="370" y="500" text-anchor="middle" class="box-title">CSV 找到并加载成功？</text>
+
+  <rect class="io" x="60" y="605" width="620" height="112"/>
+  <text x="88" y="636" class="box-title">成功路径</text>
+  <text x="88" y="660" class="box-text">_hasSignalGrid = true，样本写入 _signalSamples</text>
+  <text x="88" y="682" class="small">后续 calculateSignalStrength 会注入 CSV 项</text>
+
+  <rect class="io" x="60" y="748" width="620" height="112"/>
+  <text x="88" y="779" class="box-title">失败路径</text>
+  <text x="88" y="803" class="box-text">打印 warning，回退为“仅塔点信号模型”</text>
+  <text x="88" y="825" class="small">算法仍可运行，不会崩</text>
+
+  <!-- Middle: CSV parse details -->
+  <text x="760" y="138" class="heading">B. CSV 解析与归一化</text>
+
+  <rect class="proc" x="740" y="165" width="700" height="132"/>
+  <text x="768" y="196" class="box-title">loadSignalGridFromCsv(csvFilePath)</text>
+  <text x="768" y="220" class="box-text">读取表头，识别列：latitude/longitude/height</text>
+  <text x="768" y="242" class="box-text">评分列优先：评分(score)；无评分则回退 SS-RSRP</text>
+  <text x="768" y="264" class="small">无效行会跳过；最终得到 RawSignalSample 列表</text>
+
+  <rect class="proc" x="740" y="325" width="700" height="138"/>
+  <text x="768" y="356" class="box-title">分数归一化（scoreNorm）</text>
+  <text x="768" y="380" class="box-text">如果有“评分”列：min-max 归一化到 [0,1]</text>
+  <text x="768" y="402" class="box-text">如果用 RSRP 回退：scoreNorm = clamp((RSRP+120)/60, 0, 1)</text>
+  <text x="768" y="424" class="small">写入 _signalSamples: {coordinate, scoreNorm}</text>
+  <text x="768" y="446" class="small">并清空 _signalCache，避免旧缓存干扰</text>
+
+  <rect class="calc" x="740" y="492" width="700" height="120"/>
+  <text x="768" y="523" class="box-title">查询函数：_querySignalGridScore(coord)</text>
+  <text x="768" y="547" class="box-text">按 3D 距离（2D球面距离 + 高度差）找最近 3 个样本</text>
+  <text x="768" y="569" class="box-text">权重 w=1/(d+10)，加权均值得到 csvScore ∈ [0,1]</text>
+  <text x="768" y="591" class="small">同时返回 nearestDistanceMeters（最近样本距离）</text>
+
+  <!-- Right: fusion and optimization -->
+  <text x="1520" y="138" class="heading">C. 与原算法融合（核心）</text>
+
+  <rect class="calc" x="1490" y="165" width="650" height="150"/>
+  <text x="1518" y="196" class="box-title">calculateSignalStrength(coord)</text>
+  <text x="1518" y="220" class="box-text">先算原模型：towerSum + extraSum（塔点衰减）</text>
+  <text x="1518" y="242" class="box-text">若 _hasSignalGrid=true，再加 CSV bonus：</text>
+  <text x="1518" y="264" class="box-text">confidence = exp(-nearestDist / 150)</text>
+  <text x="1518" y="286" class="box-text">csvTerm = 0.8 * confidence * csvScore</text>
+  <text x="1518" y="308" class="small">finalSignal = towerSignal + csvTerm</text>
+
+  <rect class="out" x="1490" y="345" width="650" height="150"/>
+  <text x="1518" y="376" class="box-title">A* / RRT 如何使用这个 finalSignal</text>
+  <text x="1518" y="400" class="box-text">代价函数不变：f = g + wDev*dev + h - wSig*signal (+ collisionPenalty)</text>
+  <text x="1518" y="422" class="box-text">这里只是把 signal 换成“已融合 CSV 的 signal”</text>
+  <text x="1518" y="444" class="small">结果：有实测附近时更偏向实测；远离实测时回到塔点主导</text>
+  <text x="1518" y="466" class="small">属于“轻改造 + 可回退”</text>
+
+  <rect class="panel" x="1490" y="530" width="650" height="330"/>
+  <text x="1518" y="564" class="box-title">当前实现参数（硬编码）</text>
+  <text x="1518" y="592" class="box-text">kCsvBlendWeight = 0.8（CSV 融合强度）</text>
+  <text x="1518" y="618" class="box-text">kCsvConfidenceDecayMeters = 150（距离衰减）</text>
+  <text x="1518" y="646" class="small">位置：TowerOptimizer.cc / calculateSignalStrength</text>
+
+  <text x="1518" y="694" class="box-title">你可以怎么理解</text>
+  <text x="1518" y="720" class="box-text">1) 不是彻底改成信号栅格驱动</text>
+  <text x="1518" y="746" class="box-text">2) 是在原塔点模型上加“近场实测修正”</text>
+  <text x="1518" y="772" class="box-text">3) 即使 CSV 不在，路径优化仍正常运行</text>
+  <text x="1518" y="798" class="box-text">4) 这是最小风险、最小改动的上线方式</text>
+
+  <!-- bottom formula panel -->
+  <rect class="panel" x="740" y="650" width="1400" height="220"/>
+  <text x="770" y="686" class="box-title">关键公式（当前实现）</text>
+  <text x="770" y="716" class="box-text">3D 距离： d = sqrt( haversine2D^2 + (alt - sampleAlt)^2 )</text>
+  <text x="770" y="744" class="box-text">近邻加权： csvScore = sum( (1/(d_i+10))*s_i ) / sum(1/(d_i+10)), i=1..3</text>
+  <text x="770" y="772" class="box-text">置信衰减： confidence = exp(-nearestDist / 150)</text>
+  <text x="770" y="800" class="box-text">融合信号： signal = towerSignal + 0.8 * confidence * csvScore</text>
+  <text x="770" y="828" class="small">注：scoreNorm 已归一化到 [0,1]；如无 CSV 则 signal = towerSignal</text>
+
+  <!-- Arrows -->
+  <path class="line" d="M370,257 L370,282"/>
+  <path class="line" d="M370,401 L370,430"/>
+  <path class="line" d="M300,571 L300,600"/>
+  <text x="268" y="588" class="tag">是</text>
+  <path class="line" d="M440,571 L440,742"/>
+  <text x="450" y="660" class="tag">否</text>
+
+  <path class="line" d="M680,220 L735,220"/>
+  <path class="line" d="M1090,297 L1090,320"/>
+  <path class="line" d="M1090,463 L1090,486"/>
+  <path class="line" d="M1440,552 L1485,240"/>
+  <path class="line" d="M1815,315 L1815,340"/>
+  <path class="line" d="M1815,495 L1815,526"/>
+
+  <text x="768" y="912" class="small">文件输出：docs/path_optimize_signal_fusion_current.svg（本图）</text>
+</svg>

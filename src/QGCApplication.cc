@@ -41,6 +41,7 @@
 #include "GreenlandArea.h"
 #include <QQmlEngine>
 #include "WaterArea.h"
+#include "BuildingDense.h"
 #include "CmdLineOptParser.h"
 #include "UDPLink.h"
 #include "LinkManager.h"
@@ -466,6 +467,7 @@ void QGCApplication::_initCommon()
     qmlRegisterType<QGCMapPalette>  ("QGroundControl.Palette", 1, 0, "QGCMapPalette");
     qmlRegisterType<GreenlandArea>("QGroundControl.Greenland", 1, 0, "GreenlandArea");
     qmlRegisterType<WaterArea>("QGroundControl.Water", 1, 0, "WaterArea");
+    qmlRegisterType<BuildingDense>("QGroundControl.Building", 1, 0, "BuildingDense");
     qmlRegisterUncreatableType<Vehicle>                 (kQGCVehicle,                       1, 0, "Vehicle",                    kRefOnly);
     qmlRegisterUncreatableType<MissionManager>          (kQGCVehicle,                       1, 0, "MissionManager",             kRefOnly);
     qmlRegisterUncreatableType<ParameterManager>        (kQGCVehicle,                       1, 0, "ParameterManager",           kRefOnly);

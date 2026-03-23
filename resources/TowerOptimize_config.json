@@ -19,6 +19,12 @@
     "weightDeviation": 0.5,
     "weightSignal": 12000,
     "maxIterations": 15000,
+    "corridor": {
+      "baseMeters": 25.0,
+      "segmentRatio": 0.18,
+      "maxMeters": 80.0,
+      "collisionRelaxMultiplier": 3.0
+    },
     "separation": {
       "minMeters": 5.0,
       "safeMeters": 15.0
@@ -74,6 +80,12 @@
     "enableCollisionCheck": true,
     "minAltitudeAGL": 5.0,
     "terrainClearance": 2.0,
+    "minWaypointTerrainClearanceMeters": 20.0,
+    "buildingClearance": 6.0,
+    "minWaypointBuildingClearanceMeters": 8.0,
+    "buildingSampleSpacingMeters": 25.0,
+    "buildingCorridorPaddingMeters": 180.0,
+    "terrainAutoRaiseMarginMeters": 0.0,
     "weatherCollisionCheck": true,
     "weatherBufferMeters": 5.0
   }

@@ -23,14 +23,151 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <cstdlib>
+#include <limits>
 #include <QResource>
+#include <QRegularExpression>
 QGC_LOGGING_CATEGORY(TowerOptimizerLog, "TowerOptimizerLog")
 
 // 自定义日志输出函数，将C++日志也写入TowerOptimize专用日志文件
 void writeTowerOptimizeLog(const QString& message) {
-    // 使用Qt的消息处理机制，这样会被AppMessages.cc捕获
-    qDebug() << "[TowerOptimize]" << message;
+    qCDebug(TowerOptimizerLog) << "[TowerOptimize]" << message;
 }
+
+namespace {
+
+QString _normalizeWeatherType(const QString& rawType, double noFlyRadius)
+{
+    const QString v = rawType.trimmed().toLower();
+    if (v == QStringLiteral("suitable") || v == QStringLiteral("safe") || v == QStringLiteral("fit")
+            || v == QStringLiteral("适飞")) {
+        return QStringLiteral("suitable");
+    }
+    if (v == QStringLiteral("warning") || v == QStringLiteral("alert")
+            || v == QStringLiteral("警戒")) {
+        return QStringLiteral("warning");
+    }
+    if (v == QStringLiteral("no_fly") || v == QStringLiteral("no-fly")
+            || v == QStringLiteral("nofly") || v == QStringLiteral("forbidden")
+            || v == QStringLiteral("禁飞")) {
+        return QStringLiteral("no_fly");
+    }
+    if (v.isEmpty()) {
+        return noFlyRadius > 0.0 ? QStringLiteral("no_fly") : QStringLiteral("suitable");
+    }
+
+    // Unknown types default to no_fly to keep safety behavior conservative.
+    return QStringLiteral("no_fly");
+}
+
+bool _isWarningSensor(const TowerInfo& sensor)
+{
+    return sensor.weatherType == QStringLiteral("warning");
+}
+
+bool _isSuitableSensor(const TowerInfo& sensor)
+{
+    return sensor.weatherType == QStringLiteral("suitable");
+}
+
+double _noFlyRadiusWithBuffer(const TowerInfo& sensor, double bufferMeters)
+{
+    return qMax(0.0, sensor.noFlyRadius + bufferMeters);
+}
+
+double _warningRadius(const TowerInfo& sensor)
+{
+    if (sensor.influenceRadius > 0.0) {
+        return sensor.influenceRadius;
+    }
+    return qMax(120.0, sensor.noFlyRadius + 200.0);
+}
+
+constexpr double kMetersPerDegreeLat = 111320.0;
+constexpr double kGreenlandDecayMeters = 180.0;
+constexpr double kBuildingDecayMeters = kGreenlandDecayMeters;
+constexpr double kWaterDecayMeters = 180.0;
+constexpr double kRoadDecayMeters = 90.0;
+constexpr double kWeatherSuitableDecayMeters = 180.0;
+constexpr double kWeatherCostScale = 450.0;
+constexpr double kGreenlandCostScale = 220.0;
+constexpr double kBuildingCostScale = kGreenlandCostScale;
+constexpr double kWaterCostScale = 220.0;
+constexpr double kRoadCostScale = 180.0;
+constexpr double kDefaultBuildingLevelHeightMeters = 3.0;
+
+double _parseMetersValue(const QVariant& value, bool* ok = nullptr)
+{
+    bool localOk = false;
+    double parsed = value.toDouble(&localOk);
+    if (localOk && qIsFinite(parsed)) {
+        if (ok) {
+            *ok = true;
+        }
+        return parsed;
+    }
+
+    const QString text = value.toString().trimmed();
+    if (!text.isEmpty()) {
+        static const QRegularExpression numberPattern(QStringLiteral(R"([+-]?\d+(?:\.\d+)?)"));
+        const QRegularExpressionMatch match = numberPattern.match(text);
+        if (match.hasMatch()) {
+            parsed = match.captured(0).toDouble(&localOk);
+            if (localOk && qIsFinite(parsed)) {
+                if (ok) {
+                    *ok = true;
+                }
+                return parsed;
+            }
+        }
+    }
+
+    if (ok) {
+        *ok = false;
+    }
+    return 0.0;
+}
+
+bool _variantToCoordinate(const QVariant& value, QGeoCoordinate* out)
+{
+    if (!out) {
+        return false;
+    }
+
+    if (value.canConvert<QGeoCoordinate>()) {
+        const QGeoCoordinate coord = value.value<QGeoCoordinate>();
+        if (coord.isValid()) {
+            *out = coord;
+            return true;
+        }
+    }
+
+    const QVariantMap pointMap = value.toMap();
+    if (pointMap.contains(QStringLiteral("lat")) && pointMap.contains(QStringLiteral("lon"))) {
+        QGeoCoordinate coord(pointMap.value(QStringLiteral("lat")).toDouble(),
+                             pointMap.value(QStringLiteral("lon")).toDouble(),
+                             pointMap.value(QStringLiteral("alt")).toDouble());
+        if (coord.isValid()) {
+            *out = coord;
+            return true;
+        }
+    }
+
+    const QVariantList pointList = value.toList();
+    if (pointList.size() >= 2) {
+        QGeoCoordinate coord(pointList[0].toDouble(), pointList[1].toDouble());
+        if (pointList.size() >= 3) {
+            coord.setAltitude(pointList[2].toDouble());
+        }
+        if (coord.isValid()) {
+            *out = coord;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+} // namespace
 
 TowerOptimizer::TowerOptimizer(QObject* parent)
     : QObject(parent)
@@ -93,6 +230,7 @@ void OptimizationConfig::loadFromJson(const QJsonObject& json)
         enableCollisionCheck = col["enableCollisionCheck"].toBool(enableCollisionCheck);
         minAltitudeAGL = col["minAltitudeAGL"].toDouble(minAltitudeAGL);
         terrainClearance = col["terrainClearance"].toDouble(terrainClearance);
+        buildingClearance = col["buildingClearance"].toDouble(buildingClearance);
         weatherCollisionCheck = col["weatherCollisionCheck"].toBool(weatherCollisionCheck);
         weatherBufferMeters = col["weatherBufferMeters"].toDouble(weatherBufferMeters);
     }
@@ -107,9 +245,9 @@ bool TowerOptimizer::loadTowersFromJson(const QString& jsonFilePath)
         path = QStringLiteral(":") + path.mid(3); // "qrc:/x" -> ":/x"
     }
 
-    qDebug() << "[TowerOptimizer] loadTowersFromJson input =" << jsonFilePath
-             << "normalized =" << path
-             << "QResource valid =" << QResource(path).isValid();
+    qCDebug(TowerOptimizerLog) << "[TowerOptimizer] loadTowersFromJson input =" << jsonFilePath
+                               << "normalized =" << path
+                               << "QResource valid =" << QResource(path).isValid();
 
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -150,14 +288,44 @@ bool TowerOptimizer::loadTowersFromJson(const QString& jsonFilePath)
         if (type == QStringLiteral("sensor")) {
             info.noFlyRadius = obj["no_fly_radius"].toDouble(600.0);
             info.direction = obj["direction"].toString(QStringLiteral("up"));
+            info.weatherType = _normalizeWeatherType(obj["weather_type"].toString(), info.noFlyRadius);
+            info.avoidWeight = obj["avoid_weight"].toDouble(1.0);
+            info.warningLevel = obj["warning_level"].toInt(1);
+            info.influenceRadius = obj["influence_radius"].toDouble(0.0);
+
+            if (_isSuitableSensor(info)) {
+                info.noFlyRadius = 0.0;
+                info.warningLevel = 0;
+                info.avoidWeight = 0.0;
+            } else if (_isWarningSensor(info)) {
+                info.avoidWeight = qBound(0.0, info.avoidWeight, 3.0);
+                info.warningLevel = qBound(1, info.warningLevel, 5);
+                if (info.influenceRadius <= 0.0) {
+                    info.influenceRadius = qMax(120.0, info.noFlyRadius + 200.0);
+                }
+            } else { // no_fly
+                info.weatherType = QStringLiteral("no_fly");
+                info.avoidWeight = qMax(1.0, info.avoidWeight);
+                info.warningLevel = qBound(1, info.warningLevel, 5);
+                if (info.noFlyRadius <= 0.0) {
+                    info.noFlyRadius = qMax(100.0, info.influenceRadius);
+                }
+                if (info.influenceRadius <= 0.0) {
+                    info.influenceRadius = info.noFlyRadius;
+                }
+            }
+
             _sensors.append(info);
-            qCInfo(TowerOptimizerLog) << "Loaded sensor:" << info.name
-                                      << "at" << coord
-                                      << "noFlyRadius:" << info.noFlyRadius << "m"
-                                      << "direction:" << info.direction;
+            qCDebug(TowerOptimizerLog) << "Loaded sensor:" << info.name
+                                       << "at" << coord
+                                       << "weatherType:" << info.weatherType
+                                       << "warningLevel:" << info.warningLevel
+                                       << "avoidWeight:" << info.avoidWeight
+                                       << "influenceRadius:" << info.influenceRadius << "m"
+                                       << "noFlyRadius:" << info.noFlyRadius << "m"
+                                       << "direction:" << info.direction;
         } else {
             _towers.append(info);
-            qCInfo(TowerOptimizerLog) << "Loaded tower:" << info.name << "at" << coord;
         }
     }
 
@@ -176,9 +344,9 @@ bool TowerOptimizer::loadConfigFromJson(const QString& configFilePath)
         path = QStringLiteral(":") + path.mid(3);
     }
 
-    qDebug() << "[TowerOptimizer] loadConfigFromJson input =" << configFilePath
-             << "normalized =" << path
-             << "QResource valid =" << QResource(path).isValid();
+    qCDebug(TowerOptimizerLog) << "[TowerOptimizer] loadConfigFromJson input =" << configFilePath
+                               << "normalized =" << path
+                               << "QResource valid =" << QResource(path).isValid();
 
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -201,6 +369,173 @@ bool TowerOptimizer::loadConfigFromJson(const QString& configFilePath)
     emit configLoaded();
 
     return true;
+}
+
+bool TowerOptimizer::loadSignalGridFromCsv(const QString& csvFilePath)
+{
+    QFile file(csvFilePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qCWarning(TowerOptimizerLog) << "Failed to open signal CSV:" << csvFilePath
+                                     << "exists=" << file.exists()
+                                     << "error=" << file.errorString();
+        _signalSamples.clear();
+        _hasSignalGrid = false;
+        return false;
+    }
+
+    QStringList lines = QString::fromUtf8(file.readAll()).split('\n', Qt::SkipEmptyParts);
+    if (lines.size() < 2) {
+        qCWarning(TowerOptimizerLog) << "Signal CSV has insufficient rows:" << csvFilePath;
+        _signalSamples.clear();
+        _hasSignalGrid = false;
+        return false;
+    }
+
+    auto cleanLine = [](QString line) {
+        line = line.trimmed();
+        if (line.endsWith('\r')) {
+            line.chop(1);
+        }
+        return line;
+    };
+
+    const QString headerLine = cleanLine(lines.first());
+    const QStringList headers = headerLine.split(',', Qt::KeepEmptyParts);
+
+    auto findIndex = [&](const QStringList& aliases) -> int {
+        for (int i = 0; i < headers.size(); ++i) {
+            const QString col = headers[i].trimmed();
+            for (const QString& alias : aliases) {
+                if (QString::compare(col, alias, Qt::CaseInsensitive) == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    };
+
+    const int latIdx = findIndex({QStringLiteral("latitude"), QStringLiteral("lat")});
+    const int lonIdx = findIndex({QStringLiteral("longitude"), QStringLiteral("lon"), QStringLiteral("lng")});
+    const int heightIdx = findIndex({QStringLiteral("height"), QStringLiteral("altitude"), QStringLiteral("alt")});
+    const int scoreIdx = findIndex({QStringLiteral("评分"), QStringLiteral("score"), QStringLiteral("Score")});
+    const int rsrpIdx = findIndex({QStringLiteral("SS-RSRP"), QStringLiteral("RSRP"), QStringLiteral("ss-rsrp")});
+
+    if (latIdx < 0 || lonIdx < 0 || (scoreIdx < 0 && rsrpIdx < 0)) {
+        qCWarning(TowerOptimizerLog) << "Signal CSV missing required columns."
+                                     << "latIdx=" << latIdx
+                                     << "lonIdx=" << lonIdx
+                                     << "scoreIdx=" << scoreIdx
+                                     << "rsrpIdx=" << rsrpIdx
+                                     << "file=" << csvFilePath;
+        _signalSamples.clear();
+        _hasSignalGrid = false;
+        return false;
+    }
+
+    struct RawSignalSample {
+        QGeoCoordinate coordinate;
+        double rawScore = 0.0;
+    };
+
+    QVector<RawSignalSample> rawSamples;
+    rawSamples.reserve(lines.size() - 1);
+
+    double minRawScore = std::numeric_limits<double>::max();
+    double maxRawScore = std::numeric_limits<double>::lowest();
+
+    for (int i = 1; i < lines.size(); ++i) {
+        const QString line = cleanLine(lines[i]);
+        if (line.isEmpty()) {
+            continue;
+        }
+
+        const QStringList cols = line.split(',', Qt::KeepEmptyParts);
+        if (cols.size() <= qMax(latIdx, lonIdx)) {
+            continue;
+        }
+
+        bool okLat = false;
+        bool okLon = false;
+        const double lat = cols[latIdx].trimmed().toDouble(&okLat);
+        const double lon = cols[lonIdx].trimmed().toDouble(&okLon);
+        if (!okLat || !okLon) {
+            continue;
+        }
+
+        double height = 0.0;
+        if (heightIdx >= 0 && heightIdx < cols.size()) {
+            bool okHeight = false;
+            const double parsedHeight = cols[heightIdx].trimmed().toDouble(&okHeight);
+            if (okHeight) {
+                height = parsedHeight;
+            }
+        }
+
+        QGeoCoordinate coord(lat, lon, height);
+        if (!coord.isValid()) {
+            continue;
+        }
+
+        bool scoreOk = false;
+        double rawScore = 0.0;
+
+        if (scoreIdx >= 0 && scoreIdx < cols.size()) {
+            rawScore = cols[scoreIdx].trimmed().toDouble(&scoreOk);
+            if (scoreOk) {
+                minRawScore = qMin(minRawScore, rawScore);
+                maxRawScore = qMax(maxRawScore, rawScore);
+            }
+        }
+
+        if (!scoreOk && rsrpIdx >= 0 && rsrpIdx < cols.size()) {
+            bool okRsrp = false;
+            const double rsrp = cols[rsrpIdx].trimmed().toDouble(&okRsrp);
+            if (okRsrp) {
+                // Fallback normalization for RSRP in [-120, -60] dBm
+                rawScore = qBound(0.0, (rsrp + 120.0) / 60.0, 1.0);
+                scoreOk = true;
+            }
+        }
+
+        if (!scoreOk) {
+            continue;
+        }
+
+        rawSamples.append({coord, rawScore});
+    }
+
+    if (rawSamples.isEmpty()) {
+        qCWarning(TowerOptimizerLog) << "No valid signal samples parsed from:" << csvFilePath;
+        _signalSamples.clear();
+        _hasSignalGrid = false;
+        return false;
+    }
+
+    _signalSamples.clear();
+    _signalSamples.reserve(rawSamples.size());
+
+    const bool hasScoreRange = (scoreIdx >= 0) && (maxRawScore > minRawScore + 1e-9);
+    for (const RawSignalSample& sample : rawSamples) {
+        double scoreNorm = sample.rawScore;
+        if (scoreIdx >= 0) {
+            if (hasScoreRange) {
+                scoreNorm = (sample.rawScore - minRawScore) / (maxRawScore - minRawScore);
+            } else {
+                // Conservative fallback for already "score-like" values
+                scoreNorm = qBound(0.0, sample.rawScore / 100.0, 1.0);
+            }
+        }
+        scoreNorm = qBound(0.0, scoreNorm, 1.0);
+        _signalSamples.append({sample.coordinate, scoreNorm});
+    }
+
+    _hasSignalGrid = !_signalSamples.isEmpty();
+    _signalCache.clear();
+
+    qCInfo(TowerOptimizerLog) << "Loaded signal grid samples:" << _signalSamples.size()
+                              << "from" << csvFilePath
+                              << "using" << ((scoreIdx >= 0) ? "score" : "rsrp");
+    return _hasSignalGrid;
 }
 
 
@@ -237,7 +572,82 @@ void TowerOptimizer::setAttractors(const QVariantList& points)
                              << "scale=" << _extraAttractorScale;
     qWarning() << "[Attractors-C++] setAttractors count=" << _extraAttractors.size();
 }
-double TowerOptimizer::_haversineDistance(const QGeoCoordinate& coord1, const QGeoCoordinate& coord2)
+
+void TowerOptimizer::setGreenlandAreas(const QVariantList& areas)
+{
+    _greenlandAreas = _parseFeaturePaths(areas, true);
+    _activeGreenlandAreas.clear();
+    qCInfo(TowerOptimizerLog) << "Greenland areas set:" << _greenlandAreas.size();
+}
+
+void TowerOptimizer::setWaterAreas(const QVariantList& areas)
+{
+    _waterAreas = _parseFeaturePaths(areas, true);
+    _activeWaterAreas.clear();
+    qCInfo(TowerOptimizerLog) << "Water areas set:" << _waterAreas.size();
+}
+
+void TowerOptimizer::setBuildingAreas(const QVariantList& areas)
+{
+    _buildingAreas = _parseFeaturePaths(areas, true);
+    _activeBuildingAreas.clear();
+    _activeBuildingHeightFeatureCount = 0;
+    int heightAwareCount = 0;
+    for (const FeaturePath& building : _buildingAreas) {
+        if (_buildingHeightAboveGround(building) > 0.0) {
+            ++heightAwareCount;
+        }
+    }
+    _buildingHeightFeatureCount = heightAwareCount;
+    qCInfo(TowerOptimizerLog) << "Building areas set:" << _buildingAreas.size()
+                              << "heightAware=" << heightAwareCount;
+}
+
+void TowerOptimizer::setRoads(const QVariantList& roads)
+{
+    _roadPaths = _parseFeaturePaths(roads, false);
+    _activeRoadPaths.clear();
+    qCInfo(TowerOptimizerLog) << "Road paths set:" << _roadPaths.size();
+}
+
+void TowerOptimizer::setFeatureCorridor(const QVariantList& anchors, double paddingMeters)
+{
+    const QVector<QGeoCoordinate> corridorAnchors = _parseCoordinateList(anchors);
+    _updateActiveFeaturesForCorridor(corridorAnchors, qMax(0.0, paddingMeters));
+}
+
+double TowerOptimizer::buildingHeightAt(const QGeoCoordinate& coord)
+{
+    if (!coord.isValid()) {
+        return 0.0;
+    }
+
+    const QVector<FeaturePath>& candidates = _activeBuildingAreas.isEmpty() ? _buildingAreas : _activeBuildingAreas;
+    return _buildingHeightAt(coord, candidates);
+}
+
+double TowerOptimizer::maxBuildingHeightAlongSegment(const QGeoCoordinate& start,
+                                                     const QGeoCoordinate& end,
+                                                     double sampleSpacingMeters)
+{
+    if (!start.isValid() || !end.isValid()) {
+        return 0.0;
+    }
+
+    const QVector<FeaturePath>& candidates = _activeBuildingAreas.isEmpty() ? _buildingAreas : _activeBuildingAreas;
+    return _maxBuildingHeightAlongSegment(start, end, sampleSpacingMeters, candidates);
+}
+
+int TowerOptimizer::buildingHeightFeatureCount() const
+{
+    if (!_activeBuildingAreas.isEmpty()) {
+        return _activeBuildingHeightFeatureCount;
+    }
+
+    return _buildingHeightFeatureCount;
+}
+
+double TowerOptimizer::_haversineDistance(const QGeoCoordinate& coord1, const QGeoCoordinate& coord2) const
 {
     constexpr double R = 6371000.0; // Earth radius in meters
     
@@ -252,6 +662,583 @@ double TowerOptimizer::_haversineDistance(const QGeoCoordinate& coord1, const QG
     double c = 2 * qAtan2(qSqrt(a), qSqrt(1-a));
     
     return R * c;
+}
+
+QVector<QGeoCoordinate> TowerOptimizer::_parseCoordinateList(const QVariantList& rawCoords) const
+{
+    QVector<QGeoCoordinate> coords;
+    coords.reserve(rawCoords.size());
+
+    for (const QVariant& pointValue : rawCoords) {
+        QGeoCoordinate coord;
+        if (_variantToCoordinate(pointValue, &coord)) {
+            coords.append(coord);
+        }
+    }
+
+    return coords;
+}
+
+QVector<TowerOptimizer::FeaturePath> TowerOptimizer::_parseFeaturePaths(const QVariantList& rawFeatures, bool closedPaths) const
+{
+    QVector<FeaturePath> out;
+    out.reserve(rawFeatures.size());
+
+    for (int featureIndex = 0; featureIndex < rawFeatures.size(); ++featureIndex) {
+        const QVariantMap featureMap = rawFeatures[featureIndex].toMap();
+        const QVector<QGeoCoordinate> path = _parseCoordinateList(featureMap.value(QStringLiteral("path")).toList());
+
+        const int minimumPoints = closedPaths ? 3 : 2;
+        if (path.size() < minimumPoints) {
+            continue;
+        }
+
+        FeaturePath feature;
+        feature.id = featureMap.value(QStringLiteral("id")).toString();
+        if (feature.id.isEmpty()) {
+            feature.id = featureMap.value(QStringLiteral("name")).toString();
+        }
+        if (feature.id.isEmpty()) {
+            feature.id = QString::number(featureIndex + 1);
+        }
+        feature.path = path;
+        feature.bounds = _boundsForPath(path);
+        feature.closed = closedPaths;
+        bool ok = false;
+        feature.heightMeters = qMax(0.0, _parseMetersValue(featureMap.value(QStringLiteral("heightMeters")), &ok));
+        if (!ok) {
+            feature.heightMeters = qMax(0.0, _parseMetersValue(featureMap.value(QStringLiteral("height_m")), &ok));
+        }
+        if (!ok) {
+            feature.heightMeters = qMax(0.0, _parseMetersValue(featureMap.value(QStringLiteral("height")), &ok));
+        }
+
+        ok = false;
+        feature.minHeightMeters = qMax(0.0, _parseMetersValue(featureMap.value(QStringLiteral("minHeightMeters")), &ok));
+        if (!ok) {
+            feature.minHeightMeters = qMax(0.0, _parseMetersValue(featureMap.value(QStringLiteral("min_height")), &ok));
+        }
+        if (!ok) {
+            feature.minHeightMeters = qMax(0.0, _parseMetersValue(featureMap.value(QStringLiteral("minHeight")), &ok));
+        }
+
+        ok = false;
+        feature.levels = qMax(0.0, _parseMetersValue(featureMap.value(QStringLiteral("levels")), &ok));
+        if (!ok) {
+            feature.levels = qMax(0.0, _parseMetersValue(featureMap.value(QStringLiteral("building:levels")), &ok));
+        }
+        if (!ok) {
+            feature.levels = qMax(0.0, _parseMetersValue(featureMap.value(QStringLiteral("num_floors")), &ok));
+        }
+        out.append(feature);
+    }
+
+    return out;
+}
+
+TowerOptimizer::GeoBounds TowerOptimizer::_boundsForPath(const QVector<QGeoCoordinate>& path) const
+{
+    GeoBounds bounds;
+    if (path.isEmpty()) {
+        return bounds;
+    }
+
+    bounds.valid = true;
+    bounds.minLat = bounds.maxLat = path.first().latitude();
+    bounds.minLon = bounds.maxLon = path.first().longitude();
+
+    for (const QGeoCoordinate& coord : path) {
+        bounds.minLat = qMin(bounds.minLat, coord.latitude());
+        bounds.maxLat = qMax(bounds.maxLat, coord.latitude());
+        bounds.minLon = qMin(bounds.minLon, coord.longitude());
+        bounds.maxLon = qMax(bounds.maxLon, coord.longitude());
+    }
+
+    return bounds;
+}
+
+TowerOptimizer::GeoBounds TowerOptimizer::_corridorBounds(const QVector<QGeoCoordinate>& anchors, double paddingMeters) const
+{
+    GeoBounds bounds;
+    if (anchors.isEmpty()) {
+        return bounds;
+    }
+
+    bounds.valid = true;
+    bounds.minLat = bounds.maxLat = anchors.first().latitude();
+    bounds.minLon = bounds.maxLon = anchors.first().longitude();
+
+    for (const QGeoCoordinate& coord : anchors) {
+        bounds.minLat = qMin(bounds.minLat, coord.latitude());
+        bounds.maxLat = qMax(bounds.maxLat, coord.latitude());
+        bounds.minLon = qMin(bounds.minLon, coord.longitude());
+        bounds.maxLon = qMax(bounds.maxLon, coord.longitude());
+    }
+
+    const double meanLat = (bounds.minLat + bounds.maxLat) * 0.5;
+    const double latPadding = paddingMeters / kMetersPerDegreeLat;
+    const double lonPadding = paddingMeters /
+            qMax(1.0, kMetersPerDegreeLat * qAbs(qCos(qDegreesToRadians(meanLat))));
+
+    bounds.minLat -= latPadding;
+    bounds.maxLat += latPadding;
+    bounds.minLon -= lonPadding;
+    bounds.maxLon += lonPadding;
+    return bounds;
+}
+
+bool TowerOptimizer::_boundsIntersect(const GeoBounds& lhs, const GeoBounds& rhs) const
+{
+    if (!lhs.valid || !rhs.valid) {
+        return false;
+    }
+
+    return !(lhs.maxLat < rhs.minLat || lhs.minLat > rhs.maxLat ||
+             lhs.maxLon < rhs.minLon || lhs.minLon > rhs.maxLon);
+}
+
+double TowerOptimizer::_distanceToBoundsMeters(const QGeoCoordinate& coord, const GeoBounds& bounds) const
+{
+    if (!bounds.valid) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    const double clampedLat = qBound(bounds.minLat, coord.latitude(), bounds.maxLat);
+    const double clampedLon = qBound(bounds.minLon, coord.longitude(), bounds.maxLon);
+    const QGeoCoordinate clampedCoord(clampedLat, clampedLon, coord.altitude());
+    return _haversineDistance(coord, clampedCoord);
+}
+
+void TowerOptimizer::_updateActiveFeaturesForCorridor(const QVector<QGeoCoordinate>& anchors, double paddingMeters)
+{
+    const GeoBounds corridor = _corridorBounds(anchors, paddingMeters);
+    auto selectActive = [&](const QVector<FeaturePath>& source, QVector<FeaturePath>& target) {
+        target.clear();
+        if (!corridor.valid) {
+            return;
+        }
+
+        target.reserve(source.size());
+        for (const FeaturePath& feature : source) {
+            if (_boundsIntersect(feature.bounds, corridor)) {
+                target.append(feature);
+            }
+        }
+    };
+
+    selectActive(_greenlandAreas, _activeGreenlandAreas);
+    selectActive(_waterAreas, _activeWaterAreas);
+    selectActive(_buildingAreas, _activeBuildingAreas);
+    selectActive(_roadPaths, _activeRoadPaths);
+
+    _activeBuildingHeightFeatureCount = 0;
+    for (const FeaturePath& building : _activeBuildingAreas) {
+        if (_buildingHeightAboveGround(building) > 0.0) {
+            ++_activeBuildingHeightFeatureCount;
+        }
+    }
+
+    qCDebug(TowerOptimizerLog) << "Active features:"
+                               << "greenland=" << _activeGreenlandAreas.size()
+                               << "water=" << _activeWaterAreas.size()
+                               << "building=" << _activeBuildingAreas.size()
+                               << "buildingHeightAware=" << _activeBuildingHeightFeatureCount
+                               << "roads=" << _activeRoadPaths.size();
+}
+
+QPointF TowerOptimizer::_coordToLocalMeters(const QGeoCoordinate& coord, const QGeoCoordinate& origin) const
+{
+    const double lat0 = origin.latitude();
+    const double lon0 = origin.longitude();
+    const double metersPerDegLon = qMax(1e-6, kMetersPerDegreeLat * qAbs(qCos(qDegreesToRadians(lat0))));
+    const XYCoord xy = _latLonToXY(coord.latitude(), coord.longitude(), lat0, lon0,
+                                   kMetersPerDegreeLat, metersPerDegLon);
+    return QPointF(xy.x, xy.y);
+}
+
+double TowerOptimizer::_pointToSegmentDistanceMeters(const QPointF& p, const QPointF& a, const QPointF& b) const
+{
+    const double dx = b.x() - a.x();
+    const double dy = b.y() - a.y();
+    const double len2 = dx * dx + dy * dy;
+    if (len2 <= 1e-9) {
+        return qSqrt((p.x() - a.x()) * (p.x() - a.x()) + (p.y() - a.y()) * (p.y() - a.y()));
+    }
+
+    const double t = qBound(0.0, ((p.x() - a.x()) * dx + (p.y() - a.y()) * dy) / len2, 1.0);
+    const double projX = a.x() + t * dx;
+    const double projY = a.y() + t * dy;
+    const double diffX = p.x() - projX;
+    const double diffY = p.y() - projY;
+    return qSqrt(diffX * diffX + diffY * diffY);
+}
+
+bool TowerOptimizer::_pointInPolygon(const QPointF& p, const QVector<QPointF>& polygon) const
+{
+    if (polygon.size() < 3) {
+        return false;
+    }
+
+    bool inside = false;
+    for (int i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+        const QPointF& pi = polygon[i];
+        const QPointF& pj = polygon[j];
+        double denominator = pj.y() - pi.y();
+        if (qAbs(denominator) < 1e-9) {
+            denominator = (denominator < 0.0) ? -1e-9 : 1e-9;
+        }
+        const bool intersects = ((pi.y() > p.y()) != (pj.y() > p.y())) &&
+                (p.x() < (pj.x() - pi.x()) * (p.y() - pi.y()) / denominator + pi.x());
+        if (intersects) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+double TowerOptimizer::_distanceToPolygonMeters(const QGeoCoordinate& coord, const FeaturePath& polygon, bool* inside) const
+{
+    if (inside) {
+        *inside = false;
+    }
+
+    if (polygon.path.size() < 3) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    QVector<QPointF> localPolygon;
+    localPolygon.reserve(polygon.path.size());
+    for (const QGeoCoordinate& vertex : polygon.path) {
+        localPolygon.append(_coordToLocalMeters(vertex, coord));
+    }
+
+    const QPointF queryPoint(0.0, 0.0);
+    const bool isInside = _pointInPolygon(queryPoint, localPolygon);
+    if (inside) {
+        *inside = isInside;
+    }
+    if (isInside) {
+        return 0.0;
+    }
+
+    double bestDistance = std::numeric_limits<double>::infinity();
+    for (int i = 0; i < localPolygon.size(); ++i) {
+        const QPointF& a = localPolygon[i];
+        const QPointF& b = localPolygon[(i + 1) % localPolygon.size()];
+        bestDistance = qMin(bestDistance, _pointToSegmentDistanceMeters(queryPoint, a, b));
+    }
+    return bestDistance;
+}
+
+double TowerOptimizer::_distanceToPolylineMeters(const QGeoCoordinate& coord, const FeaturePath& polyline) const
+{
+    if (polyline.path.size() < 2) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    double bestDistance = std::numeric_limits<double>::infinity();
+    for (int i = 0; i < polyline.path.size() - 1; ++i) {
+        const QPointF a = _coordToLocalMeters(polyline.path[i], coord);
+        const QPointF b = _coordToLocalMeters(polyline.path[i + 1], coord);
+        bestDistance = qMin(bestDistance, _pointToSegmentDistanceMeters(QPointF(0.0, 0.0), a, b));
+    }
+    return bestDistance;
+}
+
+TowerOptimizer::UiWeights TowerOptimizer::_currentUiWeights() const
+{
+    UiWeights weights;
+    if (auto mgr = qobject_cast<PathOptimizationManager*>(parent())) {
+        weights.distance = qBound(0.0, mgr->distanceWeight(), 1.0);
+        weights.signal = qBound(0.0, mgr->signalWeight(), 1.0);
+        weights.weather = qBound(0.0, mgr->weatherWeight(), 1.0);
+        weights.greenland = qBound(0.0, mgr->greenlandWeight(), 1.0);
+        weights.building = qBound(0.0, mgr->buildingWeight(), 1.0);
+        weights.water = qBound(0.0, mgr->waterWeight(), 1.0);
+        weights.road = qBound(0.0, mgr->roadWeight(), 1.0);
+    }
+    return weights;
+}
+
+double TowerOptimizer::_calculateWeatherInfluenceScore(const QGeoCoordinate& coord) const
+{
+    double positive = 0.0;
+    double negative = 0.0;
+
+    for (const TowerInfo& sensor : _sensors) {
+        const double distance = _haversineDistance(coord, sensor.coordinate);
+
+        if (_isSuitableSensor(sensor)) {
+            const double radius = qMax(kWeatherSuitableDecayMeters, _warningRadius(sensor));
+            positive = qMax(positive, qExp(-distance / qMax(60.0, radius)));
+            continue;
+        }
+
+        if (_isWarningSensor(sensor)) {
+            const double radius = _warningRadius(sensor);
+            if (radius > 0.0 && distance < radius) {
+                const double normalized = (radius - distance) / qMax(radius, 1.0);
+                negative += normalized * qBound(0.5, sensor.avoidWeight, 3.0) * 0.65;
+            }
+            continue;
+        }
+
+        const double noFlyRadius = _noFlyRadiusWithBuffer(sensor, _config.weatherBufferMeters);
+        const double haloRadius = noFlyRadius + qMax(120.0, sensor.noFlyRadius * 0.5);
+        if (haloRadius > noFlyRadius && distance < haloRadius) {
+            const double normalized = (haloRadius - distance) / qMax(haloRadius - noFlyRadius, 1.0);
+            negative += normalized * qMax(1.0, sensor.avoidWeight);
+        }
+    }
+
+    return qBound(-1.0, positive - qMin(1.5, negative), 1.0);
+}
+
+bool TowerOptimizer::_checkWeatherSegmentCollision(const QGeoCoordinate& start, const QGeoCoordinate& end) const
+{
+    if (!start.isValid() || !end.isValid() || !_config.weatherCollisionCheck) {
+        return false;
+    }
+
+    const double totalDistance = _haversineDistance(start, end);
+    if (!qIsFinite(totalDistance) || totalDistance <= 1.0) {
+        return false;
+    }
+
+    const double azimuth = start.azimuthTo(end);
+    const int sampleCount = qMax(2, static_cast<int>(qCeil(totalDistance / 8.0)));
+
+    for (const TowerInfo& sensor : _sensors) {
+        if (_isSuitableSensor(sensor) || _isWarningSensor(sensor)) {
+            continue;
+        }
+
+        const double noFlyRadius = _noFlyRadiusWithBuffer(sensor, _config.weatherBufferMeters);
+        if (noFlyRadius <= 0.0) {
+            continue;
+        }
+
+        if (_haversineDistance(start, sensor.coordinate) < noFlyRadius ||
+                _haversineDistance(end, sensor.coordinate) < noFlyRadius) {
+            return true;
+        }
+
+        for (int i = 1; i < sampleCount; ++i) {
+            const double distance = (static_cast<double>(i) / sampleCount) * totalDistance;
+            const QGeoCoordinate sample = start.atDistanceAndAzimuth(distance, azimuth);
+            if (_haversineDistance(sample, sensor.coordinate) < noFlyRadius) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+double TowerOptimizer::_calculateAreaAttractionScore(const QGeoCoordinate& coord, const QVector<FeaturePath>& areas, double decayMeters) const
+{
+    double score = 0.0;
+
+    for (const FeaturePath& area : areas) {
+        if (_distanceToBoundsMeters(coord, area.bounds) > decayMeters * 1.8) {
+            continue;
+        }
+
+        bool inside = false;
+        const double distance = _distanceToPolygonMeters(coord, area, &inside);
+        if (inside) {
+            return 1.0;
+        }
+        if (qIsFinite(distance)) {
+            score = qMax(score, qExp(-distance / decayMeters));
+        }
+    }
+
+    return qBound(0.0, score, 1.0);
+}
+
+double TowerOptimizer::_calculateRoadAttractionScore(const QGeoCoordinate& coord) const
+{
+    double score = 0.0;
+
+    for (const FeaturePath& road : _activeRoadPaths) {
+        if (_distanceToBoundsMeters(coord, road.bounds) > kRoadDecayMeters * 2.0) {
+            continue;
+        }
+
+        const double distance = _distanceToPolylineMeters(coord, road);
+        if (qIsFinite(distance)) {
+            score = qMax(score, qExp(-distance / kRoadDecayMeters));
+        }
+    }
+
+    return qBound(0.0, score, 1.0);
+}
+
+double TowerOptimizer::_calculateEnvironmentCost(const QGeoCoordinate& coord) const
+{
+    const UiWeights weights = _currentUiWeights();
+    const double weatherScore = _calculateWeatherInfluenceScore(coord);
+    const double greenlandScore = _calculateAreaAttractionScore(coord, _activeGreenlandAreas, kGreenlandDecayMeters);
+    const double buildingScore = _calculateAreaAttractionScore(coord, _activeBuildingAreas, kBuildingDecayMeters);
+    const double waterScore = _calculateAreaAttractionScore(coord, _activeWaterAreas, kWaterDecayMeters);
+    const double roadScore = _calculateRoadAttractionScore(coord);
+
+    double cost = 0.0;
+    cost -= weights.weather * weatherScore * kWeatherCostScale;
+    cost -= weights.greenland * greenlandScore * kGreenlandCostScale;
+    cost += weights.building * buildingScore * kBuildingCostScale;
+    cost -= weights.water * waterScore * kWaterCostScale;
+    cost -= weights.road * roadScore * kRoadCostScale;
+    return cost;
+}
+
+double TowerOptimizer::_defaultBuildingHeightMeters(double levels) const
+{
+    if (!qIsFinite(levels) || levels <= 0.0) {
+        return 0.0;
+    }
+
+    return levels * kDefaultBuildingLevelHeightMeters;
+}
+
+double TowerOptimizer::_buildingHeightAboveGround(const FeaturePath& building) const
+{
+    const double explicitHeight = qMax(0.0, building.heightMeters);
+    const double fallbackHeight = _defaultBuildingHeightMeters(building.levels);
+    return qMax(explicitHeight, fallbackHeight) + qMax(0.0, building.minHeightMeters);
+}
+
+double TowerOptimizer::_buildingHeightAt(const QGeoCoordinate& coord, const QVector<FeaturePath>& buildings) const
+{
+    if (!coord.isValid() || buildings.isEmpty()) {
+        return 0.0;
+    }
+
+    double maxHeight = 0.0;
+    for (const FeaturePath& building : buildings) {
+        const double height = _buildingHeightAboveGround(building);
+        if (height <= 0.0) {
+            continue;
+        }
+        if (!building.bounds.valid) {
+            continue;
+        }
+        if (coord.latitude() < building.bounds.minLat || coord.latitude() > building.bounds.maxLat
+                || coord.longitude() < building.bounds.minLon || coord.longitude() > building.bounds.maxLon) {
+            continue;
+        }
+
+        bool inside = false;
+        _distanceToPolygonMeters(coord, building, &inside);
+        if (inside) {
+            maxHeight = qMax(maxHeight, height);
+        }
+    }
+
+    return maxHeight;
+}
+
+double TowerOptimizer::_maxBuildingHeightAlongSegment(const QGeoCoordinate& start,
+                                                      const QGeoCoordinate& end,
+                                                      double sampleSpacingMeters,
+                                                      const QVector<FeaturePath>& buildings) const
+{
+    if (!start.isValid() || !end.isValid() || buildings.isEmpty()) {
+        return 0.0;
+    }
+
+    const double distanceMeters = _haversineDistance(start, end);
+    const double spacing = qBound(5.0, sampleSpacingMeters, 80.0);
+    const int sampleCount = qMax(2, static_cast<int>(qCeil(distanceMeters / spacing)) + 1);
+
+    double maxHeight = 0.0;
+    for (int i = 0; i < sampleCount; ++i) {
+        const double t = (sampleCount <= 1) ? 0.0 : (static_cast<double>(i) / static_cast<double>(sampleCount - 1));
+        const double altitude = start.altitude() + (end.altitude() - start.altitude()) * t;
+        const QGeoCoordinate sample(start.latitude() + (end.latitude() - start.latitude()) * t,
+                                    start.longitude() + (end.longitude() - start.longitude()) * t,
+                                    altitude);
+        maxHeight = qMax(maxHeight, _buildingHeightAt(sample, buildings));
+    }
+
+    return maxHeight;
+}
+
+double TowerOptimizer::_calculateEnvironmentCostAt(int gx, int gy, const QGeoCoordinate& origin)
+{
+    const QString key = _gridKey(gx, gy);
+    if (_environmentCache.contains(key)) {
+        return _environmentCache[key];
+    }
+
+    const QGeoCoordinate gridCoord = _gridToCoord(gx, gy, origin);
+    const double result = _calculateEnvironmentCost(gridCoord);
+    _environmentCache[key] = result;
+    return result;
+}
+
+double TowerOptimizer::_querySignalGridScore(const QGeoCoordinate& coord, double* nearestDistanceMeters)
+{
+    if (!_hasSignalGrid || _signalSamples.isEmpty()) {
+        if (nearestDistanceMeters) {
+            *nearestDistanceMeters = std::numeric_limits<double>::infinity();
+        }
+        return -1.0;
+    }
+
+    double d1 = std::numeric_limits<double>::infinity();
+    double d2 = std::numeric_limits<double>::infinity();
+    double d3 = std::numeric_limits<double>::infinity();
+    double s1 = 0.0;
+    double s2 = 0.0;
+    double s3 = 0.0;
+
+    for (const SignalSample& sample : _signalSamples) {
+        const double d2d = _haversineDistance(coord, sample.coordinate);
+        const double dz = qAbs(coord.altitude() - sample.coordinate.altitude());
+        const double dist = qSqrt(d2d * d2d + dz * dz);
+
+        if (dist < d1) {
+            d3 = d2; s3 = s2;
+            d2 = d1; s2 = s1;
+            d1 = dist; s1 = sample.scoreNorm;
+        } else if (dist < d2) {
+            d3 = d2; s3 = s2;
+            d2 = dist; s2 = sample.scoreNorm;
+        } else if (dist < d3) {
+            d3 = dist; s3 = sample.scoreNorm;
+        }
+    }
+
+    if (!qIsFinite(d1)) {
+        if (nearestDistanceMeters) {
+            *nearestDistanceMeters = std::numeric_limits<double>::infinity();
+        }
+        return -1.0;
+    }
+
+    auto weight = [](double d) {
+        return 1.0 / (d + 10.0); // avoid singularity and keep near-point preference
+    };
+
+    double weightedScore = weight(d1) * s1;
+    double weightSum = weight(d1);
+
+    if (qIsFinite(d2)) {
+        weightedScore += weight(d2) * s2;
+        weightSum += weight(d2);
+    }
+    if (qIsFinite(d3)) {
+        weightedScore += weight(d3) * s3;
+        weightSum += weight(d3);
+    }
+
+    if (nearestDistanceMeters) {
+        *nearestDistanceMeters = d1;
+    }
+
+    return (weightSum > 0.0) ? (weightedScore / weightSum) : -1.0;
 }
 
 /*double TowerOptimizer::calculateSignalStrength(const QGeoCoordinate& coord)
@@ -298,9 +1285,9 @@ double TowerOptimizer::calculateSignalStrength(const QGeoCoordinate& coord)
 {
     double composite = 0.0;
 
-    // 新增：分别统计
     double towersSum = 0.0;
-    double extraSum  = 0.0;
+    double csvTerm = 0.0;
+    double nearestCsvDistance = std::numeric_limits<double>::infinity();
 
     auto accumulate = [&](const QVector<TowerInfo>& towers, double scale, double& bucket) {
         for (const TowerInfo& tower : towers) {
@@ -316,17 +1303,27 @@ double TowerOptimizer::calculateSignalStrength(const QGeoCoordinate& coord)
     };
 
     accumulate(_towers, 1.0, towersSum);
-    accumulate(_extraAttractors, _extraAttractorScale, extraSum);
+
+    if (_hasSignalGrid) {
+        const double csvScore = _querySignalGridScore(coord, &nearestCsvDistance);
+        if (csvScore >= 0.0) {
+            // Minimal-intrusive blend: keep tower model as baseline, add measured score as bonus.
+            constexpr double kCsvBlendWeight = 0.8;
+            constexpr double kCsvConfidenceDecayMeters = 150.0;
+            const double confidence = qExp(-nearestCsvDistance / kCsvConfidenceDecayMeters);
+            csvTerm = kCsvBlendWeight * confidence * csvScore;
+            composite += csvTerm;
+        }
+    }
 
     static int printed = 0;
     if (printed++ < 10) {
-        qDebug() << "[Sig]"
-                 << "coord=" << coord
-                 << "towersSum=" << towersSum
-                 << "extraSum=" << extraSum
-                 << "extraCount=" << _extraAttractors.size()
-                 << "extraScale=" << _extraAttractorScale
-                 << "signalRadius=" << _config.signalRadiusMeters;
+        qCDebug(TowerOptimizerLog) << "[Sig]"
+                                   << "coord=" << coord
+                                   << "towersSum=" << towersSum
+                                   << "csvTerm=" << csvTerm
+                                   << "csvNearestDist=" << nearestCsvDistance
+                                   << "signalRadius=" << _config.signalRadiusMeters;
     }
 
     return composite;
@@ -336,32 +1333,41 @@ double TowerOptimizer::calculateSignalStrength(const QGeoCoordinate& coord)
 bool TowerOptimizer::checkWeatherCollision(const QGeoCoordinate& coord)
 {
     if (!_config.weatherCollisionCheck) {
-        qCInfo(TowerOptimizerLog) << "Weather collision check disabled";
+        qCDebug(TowerOptimizerLog) << "Weather collision check disabled";
         return false;
     }
     
-    qCInfo(TowerOptimizerLog) << "Checking weather collision for coord" << coord 
-                               << "with" << _sensors.size() << "sensors";
+    qCDebug(TowerOptimizerLog) << "Checking weather collision for coord" << coord 
+                                << "with" << _sensors.size() << "sensors";
     
     for (const TowerInfo& sensor : _sensors) {
-        double distance = _haversineDistance(coord, sensor.coordinate);
-        double collisionRadius = sensor.noFlyRadius + _config.weatherBufferMeters;
-        
-        qCInfo(TowerOptimizerLog) << "Sensor" << sensor.name 
+        if (_isSuitableSensor(sensor) || _isWarningSensor(sensor)) {
+            continue;
+        }
+
+        const double collisionRadius = _noFlyRadiusWithBuffer(sensor, _config.weatherBufferMeters);
+        if (collisionRadius <= 0.0) {
+            continue;
+        }
+
+        const double distance = _haversineDistance(coord, sensor.coordinate);
+
+        qCDebug(TowerOptimizerLog) << "Sensor" << sensor.name
+                                   << "type:" << sensor.weatherType
                                    << "distance:" << distance << "m"
                                    << "collision radius:" << collisionRadius << "m"
                                    << "noFlyRadius:" << sensor.noFlyRadius << "m"
                                    << "buffer:" << _config.weatherBufferMeters << "m";
-        
+
         if (distance < collisionRadius) {
-            qCWarning(TowerOptimizerLog) << "Weather collision detected near" << sensor.name
-                                        << "distance:" << distance << "m < radius:" << collisionRadius << "m";
-            emit collisionDetected(coord, QString("Weather: %1 (dist: %2m)").arg(sensor.name).arg(distance, 0, 'f', 1));
+            qCDebug(TowerOptimizerLog) << "Weather no-fly collision near" << sensor.name
+                                       << "distance:" << distance << "m < radius:" << collisionRadius << "m";
+            emit collisionDetected(coord, QString("Weather no-fly: %1 (dist: %2m)").arg(sensor.name).arg(distance, 0, 'f', 1));
             return true;
         }
     }
     
-    qCInfo(TowerOptimizerLog) << "No weather collision detected";
+    qCDebug(TowerOptimizerLog) << "No weather collision detected";
     return false;
 }
 
@@ -392,16 +1398,16 @@ bool TowerOptimizer::checkTerrainCollision(const QGeoCoordinate& coord, double a
     if (!terrainDataAvailable) {
         // 根据坐标估算地形高度（简化模型）
         terrainHeight = _estimateTerrainHeight(coord);
-        qCInfo(TowerOptimizerLog) << "Using estimated terrain height:" << terrainHeight << "m for coord" << coord;
+        qCDebug(TowerOptimizerLog) << "Using estimated terrain height:" << terrainHeight << "m for coord" << coord;
     }
     
     double agl = altitudeAMSL - terrainHeight;
     double requiredAGL = _config.minAltitudeAGL + _config.terrainClearance;
     
     if (agl < requiredAGL) {
-        qCWarning(TowerOptimizerLog) << "Terrain collision detected at" << coord 
-                                    << "AGL:" << agl << "m (required:" << requiredAGL << "m)"
-                                    << "terrain:" << terrainHeight << "m AMSL:" << altitudeAMSL << "m";
+        qCDebug(TowerOptimizerLog) << "Terrain collision detected at" << coord
+                                   << "AGL:" << agl << "m (required:" << requiredAGL << "m)"
+                                   << "terrain:" << terrainHeight << "m AMSL:" << altitudeAMSL << "m";
         emit collisionDetected(coord, QString("Terrain: AGL %1m < %2m").arg(agl, 0, 'f', 1).arg(requiredAGL, 0, 'f', 1));
         return true;
     }
@@ -411,22 +1417,22 @@ bool TowerOptimizer::checkTerrainCollision(const QGeoCoordinate& coord, double a
 
 bool TowerOptimizer::checkCollision(const QGeoCoordinate& coord, double altitudeAMSL)
 {
-    qCInfo(TowerOptimizerLog) << "Checking collision for coord" << coord 
-                               << "altitude AMSL:" << altitudeAMSL << "m";
+    qCDebug(TowerOptimizerLog) << "Checking collision for coord" << coord 
+                                << "altitude AMSL:" << altitudeAMSL << "m";
     
     // 检查天气碰撞
     if (checkWeatherCollision(coord)) {
-        qCInfo(TowerOptimizerLog) << "Weather collision detected, returning true";
+        qCDebug(TowerOptimizerLog) << "Weather collision detected, returning true";
         return true;
     }
     
     // 检查地形碰撞
     if (altitudeAMSL > 0.0 && checkTerrainCollision(coord, altitudeAMSL)) {
-        qCInfo(TowerOptimizerLog) << "Terrain collision detected, returning true";
+        qCDebug(TowerOptimizerLog) << "Terrain collision detected, returning true";
         return true;
     }
     
-    qCInfo(TowerOptimizerLog) << "No collision detected";
+    qCDebug(TowerOptimizerLog) << "No collision detected";
     return false;
 }
 
@@ -487,6 +1493,7 @@ double TowerOptimizer::_calculateSignalAt(int gx, int gy, const QGeoCoordinate& 
 void TowerOptimizer::_clearCaches()
 {
     _signalCache.clear();
+    _environmentCache.clear();
     _heuristicCache.clear();
 }
 
@@ -500,18 +1507,11 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointAStar(const QGeoCoordinate& curr
                                                        const QGeoCoordinate& prev,
                                                        double altitude)
 {
-    // Clear caches for fresh calculation
-    _clearCaches();
-    qWarning() << "[Attractors-C++] at _optimizeWaypointAStar start extraCount="
-           << _extraAttractors.size()
-           << "scale=" << _extraAttractorScale
-           << "towers=" << _towers.size()
-           << "sensors=" << _sensors.size();
-    qDebug() << "[A*] ENTER"
-            << "current=" << current
-            << "next=" << next
-            << "prevValid=" << prev.isValid()
-            << "alt=" << altitude;
+    qCDebug(TowerOptimizerLog) << "[A*] ENTER"
+                               << "current=" << current
+                               << "next=" << next
+                               << "prevValid=" << prev.isValid()
+                               << "alt=" << altitude;
     // A* parameters
     double cellSize = _config.cellSizeMeters;
     int radiusCells = _config.radiusCells;
@@ -522,40 +1522,38 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointAStar(const QGeoCoordinate& curr
 
     int maxIterations = _config.maxIterations;
 
-    // --- Apply UI weights (PathOptimizationManager) ---
-    // Keep a minimum distance/deviation influence to avoid "going wild"
-    constexpr double kMinDistanceWeight = 0.10; // 10% baseline even if slider is 0
-
-    double uiDistW = 1.0;
-    double uiSigW  = 1.0;
-
-    if (auto mgr = qobject_cast<PathOptimizationManager*>(parent())) {
-        uiDistW = qBound(0.0, mgr->distanceWeight(), 1.0);
-        uiSigW  = qBound(0.0, mgr->signalWeight(),   1.0);
+    QVector<QGeoCoordinate> corridorAnchors;
+    corridorAnchors.append(current);
+    corridorAnchors.append(next);
+    if (prev.isValid()) {
+        corridorAnchors.append(prev);
     }
+    _updateActiveFeaturesForCorridor(corridorAnchors, cellSize * radiusCells + 320.0);
+    _clearCaches();
 
-    // map distance weight to [kMinDistanceWeight, 1.0]
-    uiDistW = kMinDistanceWeight + (1.0 - kMinDistanceWeight) * uiDistW;
+    const UiWeights uiWeights = _currentUiWeights();
 
-    // apply
-    wDev *= uiDistW;
-    wSig *= uiSigW;
+    wDev *= uiWeights.distance;
+    wSig *= uiWeights.signal;
 
-    qCInfo(TowerOptimizerLog) << "A* UI weights:"
-                            << "distance=" << uiDistW
-                            << "signal=" << uiSigW
-                            << "=> wDev=" << wDev
-                            << "wSig=" << wSig;
+    qCDebug(TowerOptimizerLog) << "A* UI weights:"
+                               << "distance=" << uiWeights.distance
+                               << "signal=" << uiWeights.signal
+                               << "weather=" << uiWeights.weather
+                               << "greenland=" << uiWeights.greenland
+                               << "building=" << uiWeights.building
+                               << "water=" << uiWeights.water
+                               << "road=" << uiWeights.road
+                               << "=> wDev=" << wDev
+                               << "wSig=" << wSig;
     
     // Separation constraints
     double minSeparation = _config.minSeparationMeters;
-    double safeSeparation = _config.safeSeparationMeters;
-    
     // Calculate original distances for ratio checking
     double origDistToNext = _haversineDistance(current, next);
     double origDistToPrev = prev.isValid() ? _haversineDistance(current, prev) : 0.0;
     
-    qCInfo(TowerOptimizerLog) << "Starting A* optimization for waypoint at" 
+    qCDebug(TowerOptimizerLog) << "Starting A* optimization for waypoint at"
                                << current.latitude() << current.longitude()
                                << "with distance constraints:"
                                << "next=" << origDistToNext << "m"
@@ -577,7 +1575,8 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointAStar(const QGeoCoordinate& curr
     start->dev = 0;
     start->sig = _calculateSignalAt(0, 0, current);
     start->h = _calculateHeuristic(0, 0, current, next);
-    start->f = start->g + wDev * start->dev + start->h - wSig * start->sig;
+    start->f = start->g + wDev * start->dev + start->h - wSig * start->sig
+             + _calculateEnvironmentCostAt(0, 0, current);
     start->parent = nullptr;
     
     QString startKey = _gridKey(0, 0);
@@ -620,8 +1619,8 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointAStar(const QGeoCoordinate& curr
         double maxSearchRadius = cellSize * radiusCells;
         
         if (sigImprovement > 0.2 && currentNode->dev < maxSearchRadius * 0.3) {
-            qCInfo(TowerOptimizerLog) << "Early termination: signal improved by" 
-                                      << (sigImprovement * 100) << "% at iteration" << iterations;
+            qCDebug(TowerOptimizerLog) << "Early termination: signal improved by"
+                                       << (sigImprovement * 100) << "% at iteration" << iterations;
             bestSoFar = currentNode;
             break;
         }
@@ -684,23 +1683,9 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointAStar(const QGeoCoordinate& curr
             double dev = _calculateDeviationCost(ngx, ngy, cellSize);
             double sig = _calculateSignalAt(ngx, ngy, current);
             double h = _calculateHeuristic(ngx, ngy, current, next);
-            
-            // 增加禁飞区惩罚 - 让算法更倾向于远离禁飞区
-            double collisionPenalty = 0.0;
-            if (_config.weatherCollisionCheck) {
-                for (const TowerInfo& sensor : _sensors) {
-                    double distance = _haversineDistance(candidateCoord, sensor.coordinate);
-                    double noFlyRadius = sensor.noFlyRadius + _config.weatherBufferMeters;
-                    
-                    // 如果距离禁飞区很近，增加惩罚
-                    if (distance < noFlyRadius * 1.5) {  // 在禁飞区半径1.5倍范围内
-                        double penaltyFactor = (noFlyRadius * 1.5 - distance) / (noFlyRadius * 0.5);
-                        collisionPenalty += penaltyFactor * 1000.0;  // 高惩罚
-                    }
-                }
-            }
-            
-            double f = g + wDev * dev + h - wSig * sig + collisionPenalty;
+
+            double f = g + wDev * dev + h - wSig * sig
+                     + _calculateEnvironmentCostAt(ngx, ngy, current);
             
             // Check if already in open set
             if (open.contains(neighborKey)) {
@@ -733,19 +1718,19 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointAStar(const QGeoCoordinate& curr
         }
     }
     
-    qCInfo(TowerOptimizerLog) << "A* completed after" << iterations << "iterations";
-    qDebug() << "[A*] DONE iterations=" << iterations
-         << "best gx,gy=" << bestSoFar->gx << bestSoFar->gy
-         << "best f=" << bestSoFar->f
-         << "best sig=" << bestSoFar->sig
-         << "best dev=" << bestSoFar->dev;
+    qCDebug(TowerOptimizerLog) << "A* completed after" << iterations << "iterations";
+    qCDebug(TowerOptimizerLog) << "[A*] DONE iterations=" << iterations
+                               << "best gx,gy=" << bestSoFar->gx << bestSoFar->gy
+                               << "best f=" << bestSoFar->f
+                               << "best sig=" << bestSoFar->sig
+                               << "best dev=" << bestSoFar->dev;
     // Get best coordinate
     QGeoCoordinate result = _gridToCoord(bestSoFar->gx, bestSoFar->gy, current);
     result.setAltitude(altitude);
     
     // Cleanup
     qDeleteAll(allNodes);
-    qDebug() << "[A*] RESULT coord=" << result;
+    qCDebug(TowerOptimizerLog) << "[A*] RESULT coord=" << result;
     return result;
 }
 
@@ -789,7 +1774,7 @@ bool TowerOptimizer::optimizeMissionRRT()
 TowerOptimizer::XYCoord TowerOptimizer::_latLonToXY(double lat, double lon, 
                                                       double lat0, double lon0,
                                                       double metersPerDegLat, 
-                                                      double metersPerDegLon)
+                                                      double metersPerDegLon) const
 {
     XYCoord result;
     result.y = (lat - lat0) * metersPerDegLat;
@@ -801,14 +1786,14 @@ QGeoCoordinate TowerOptimizer::_xyToLatLon(double x, double y,
                                             double lat0, double lon0,
                                             double metersPerDegLat, 
                                             double metersPerDegLon,
-                                            double altitude)
+                                            double altitude) const
 {
     double lat = lat0 + (y / metersPerDegLat);
     double lon = lon0 + (x / metersPerDegLon);
     return QGeoCoordinate(lat, lon, altitude);
 }
 
-int TowerOptimizer::_findNearestNode(const QVector<RRTNode>& nodes, double x, double y)
+int TowerOptimizer::_findNearestNode(const QVector<RRTNode>& nodes, double x, double y) const
 {
     if (nodes.isEmpty()) {
         return -1;
@@ -843,9 +1828,16 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointRRT(const QGeoCoordinate& curren
     double goalBias = _config.goalBias;
     double wDev = _config.weightDeviation;
     double wSig = _config.weightSignal;
+    const UiWeights uiWeights = _currentUiWeights();
     
     double minSeparation = _config.minSeparationMeters;
-    double safeSeparation = _config.safeSeparationMeters;
+    QVector<QGeoCoordinate> corridorAnchors;
+    corridorAnchors.append(current);
+    corridorAnchors.append(next);
+    if (prev.isValid()) {
+        corridorAnchors.append(prev);
+    }
+    _updateActiveFeaturesForCorridor(corridorAnchors, searchRadiusMeters + 320.0);
     
     qCInfo(TowerOptimizerLog) << "Starting RRT optimization for waypoint at"
                                << current.latitude() << current.longitude()
@@ -877,11 +1869,11 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointRRT(const QGeoCoordinate& curren
     start.dev = 0;
     start.sig = calculateSignalStrength(current);
     start.h = origDistToNext;
-    start.f = start.g + wDev * start.dev + start.h - wSig * start.sig;
+    start.f = start.g + (wDev * uiWeights.distance) * start.dev + start.h
+            - (wSig * uiWeights.signal) * start.sig + _calculateEnvironmentCost(current);
     nodes.append(start);
     
     RRTNode best = start;
-    int bestIdx = 0;
     
     // Random number generator
     std::srand(static_cast<unsigned>(QDateTime::currentMSecsSinceEpoch()));
@@ -929,7 +1921,7 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointRRT(const QGeoCoordinate& curren
         // Convert to lat/lon
         QGeoCoordinate newCoord = _xyToLatLon(newX, newY, lat0, lon0, 
                                                metersPerDegLat, metersPerDegLon, altitude);
-        
+
         // *** 碰撞检测 ***
         if (_config.enableCollisionCheck && checkCollision(newCoord, altitude)) {
             continue;  // 碰撞，跳过
@@ -963,7 +1955,8 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointRRT(const QGeoCoordinate& curren
         double sig = calculateSignalStrength(newCoord);
         double h = distToNext;
         double g = nearest.g + step;
-        double f = g + wDev * dev + h - wSig * sig;
+        double f = g + (wDev * uiWeights.distance) * dev + h
+                 - (wSig * uiWeights.signal) * sig + _calculateEnvironmentCost(newCoord);
         
         // Create new node
         RRTNode newNode;
@@ -982,7 +1975,6 @@ QGeoCoordinate TowerOptimizer::_optimizeWaypointRRT(const QGeoCoordinate& curren
         // f = g + wDev*dev + h - wSig*sig，所以f越小越好（信号越强，f越小）
         if (f < best.f) {
             best = newNode;
-            bestIdx = nodes.size() - 1;
         }
     }
     
@@ -1082,30 +2074,12 @@ QVector<QGeoCoordinate> TowerOptimizer::_optimizePathAStarNew(const QVector<QGeo
     // 检查每个路径点的collision并打印
     for (int i = 0; i < originalPath.size(); ++i) {
         const QGeoCoordinate& pt = originalPath[i];
-        bool collision = false;
-
-        // 天气/禁飞区碰撞检查
-        if (_config.weatherCollisionCheck) {
-            for (const TowerInfo& sensor : _sensors) {
-                double dist = _haversineDistance(pt, sensor.coordinate);
-                if (dist < sensor.noFlyRadius + _config.collisionBufferMeters) {
-                    collision = true;
-                    writeTowerOptimizeLog(QString("Path waypoint %1 collides with no-fly zone (sensor@%2)").arg(i).arg(sensor.coordinate.toString()));
-                    break;
-                }
-            }
-        }
-
-        // 地形碰撞检查
-        if (!collision && _config.enableCollisionCheck) {
-            if (checkTerrainCollision(pt, altitude)) {
-                collision = true;
-                writeTowerOptimizeLog(QString("Path waypoint %1 collides with terrain").arg(i));
-            }
-        }
+        const bool collision = checkCollision(pt, altitude);
 
         if (!collision) {
             writeTowerOptimizeLog(QString("Path waypoint %1 is collision free.").arg(i));
+        } else {
+            writeTowerOptimizeLog(QString("Path waypoint %1 collides with active constraints").arg(i));
         }
     }
 
@@ -1151,7 +2125,7 @@ QVector<QGeoCoordinate> TowerOptimizer::_optimizePathAStarNew(const QVector<QGeo
 
         QString pathLog = "Final path coordinates:";
         for (int i = 0; i < globalPath.size(); ++i) {
-            qDebug() << QString("%1: %2").arg(i).arg(globalPath[i].toString());
+            qCDebug(TowerOptimizerLog) << QString("%1: %2").arg(i).arg(globalPath[i].toString());
         }
         writeTowerOptimizeLog(pathLog);
         return globalPath;
@@ -1164,10 +2138,18 @@ QVector<QGeoCoordinate> TowerOptimizer::_optimizePathAStarNew(const QVector<QGeo
 QVector<QGeoCoordinate> TowerOptimizer::_planPathAStarNew(const QGeoCoordinate& start, const QGeoCoordinate& goal, 
                                                           double altitude, int maxSteps)
 {
+    Q_UNUSED(maxSteps);
     writeTowerOptimizeLog(QString("Start: %1").arg(start.toString()));
     writeTowerOptimizeLog(QString("Goal: %2").arg(goal.toString()));
     writeTowerOptimizeLog(QString("Altitude: %3").arg(altitude));
     writeTowerOptimizeLog(QString("Max steps: %4").arg(maxSteps));
+
+    QVector<QGeoCoordinate> corridorAnchors;
+    corridorAnchors.append(start);
+    corridorAnchors.append(goal);
+    _updateActiveFeaturesForCorridor(corridorAnchors, qMax(_config.maxStepSizeMeters * 2.0, 450.0));
+    const UiWeights uiWeights = _currentUiWeights();
+    const double signalCostScale = qMax(400.0, _config.weightSignal * 0.08);
     
     // 简单的节点结构
     struct Node {
@@ -1226,38 +2208,46 @@ QVector<QGeoCoordinate> TowerOptimizer::_planPathAStarNew(const QGeoCoordinate& 
         
         // 检查是否到达目标（使用更宽松的条件）
         double distanceToGoal = _haversineDistance(current.coord, goal);
-        if (distanceToGoal < _config.stepSizeMeters * 1.0) {  // 减少到3倍步长
+        if (distanceToGoal < _config.stepSizeMeters * 1.0
+                && !_checkWeatherSegmentCollision(current.coord, goal)) {  // 减少到3倍步长
             writeTowerOptimizeLog(QString("Reached goal in %1 iterations, distance: %2 m").arg(iterations).arg(distanceToGoal));
             writeTowerOptimizeLog(QString("Goal node: lat=%1, lon=%2")
                               .arg(goal.latitude(), 0, 'f', 8)
                               .arg(goal.longitude(), 0, 'f', 8));
             goalReached = true;
-            goalNodeIdx = nodes.size() - 1;
+            goalNodeIdx = current.index;
             break;
         }
         
-        // 生成候选点 - 优先向目标方向搜索
+        // 生成候选点 - 优先向目标方向搜索，但允许明显的侧向绕行
         double goalDirection = current.coord.azimuthTo(goal);
         int validCandidates = 0;
-        
-        // 根据到目标的距离自适应调整步长，步长为距离的1/10
-        double stepSize = distanceToGoal / 3.0;
-        
-        // 限制步长在合理范围内
-        if (stepSize < _config.minStepSizeMeters) {
-            stepSize = _config.minStepSizeMeters;
+
+        // 城市级绕障需要明显更细的步长；否则 300-500m 航段会直接跨过整片建筑/禁飞区。
+        const double effectiveMinStep = qMax(18.0, qMin(_config.minStepSizeMeters, 25.0));
+        double stepSize = distanceToGoal / 5.0;
+
+        if (stepSize < effectiveMinStep) {
+            stepSize = effectiveMinStep;
         } else if (stepSize > _config.maxStepSizeMeters) {
             stepSize = _config.maxStepSizeMeters;
         }
-        
-        
-        // 生成候选点：主要方向 + 左右各2个方向
+
+        // 生成候选点：前向、侧向、反向回旋都允许，避免卡死在障碍前方。
         QVector<double> directions;
-        directions.append(goalDirection);  // 直接向目标
-        directions.append(goalDirection + 35.0);  // 右偏45度
-        directions.append(goalDirection - 35.0);  // 左偏45度
-        // directions.append(goalDirection + 90.0);  // 右偏90度
-        // directions.append(goalDirection - 90.0);  // 左偏90度
+        const QVector<double> directionOffsets = {
+            0.0,
+            25.0, -25.0,
+            50.0, -50.0,
+            75.0, -75.0,
+            100.0, -100.0,
+            125.0, -125.0,
+            150.0, -150.0,
+            175.0, -175.0
+        };
+        for (double offset : directionOffsets) {
+            directions.append(goalDirection + offset);
+        }
         
         for (double angle : directions) {
             if (angle >= 360.0) angle -= 360.0;
@@ -1273,39 +2263,51 @@ QVector<QGeoCoordinate> TowerOptimizer::_planPathAStarNew(const QGeoCoordinate& 
                 continue;
             }
             
-            // 检查禁飞区碰撞
             bool hasCollision = false;
+
             if (_config.weatherCollisionCheck) {
                 for (const TowerInfo& sensor : _sensors) {
-                    double distToSensor = _haversineDistance(candidate, sensor.coordinate);
-                    if (distToSensor < sensor.noFlyRadius + _config.collisionBufferMeters) {
+                    if (_isSuitableSensor(sensor) || _isWarningSensor(sensor)) {
+                        continue;
+                    }
+
+                    const double noFlyRadius = _noFlyRadiusWithBuffer(sensor, _config.collisionBufferMeters);
+                    if (noFlyRadius <= 0.0) {
+                        continue;
+                    }
+
+                    if (_haversineDistance(candidate, sensor.coordinate) < noFlyRadius) {
                         hasCollision = true;
                         break;
                     }
                 }
             }
-            
-            // 检查地形碰撞
-            if (!hasCollision && _config.enableCollisionCheck && checkTerrainCollision(candidate, altitude)) {
+
+            if (!hasCollision && _checkWeatherSegmentCollision(current.coord, candidate)) {
                 hasCollision = true;
             }
-            
+
+            if (!hasCollision && altitude > 0.0 && checkTerrainCollision(candidate, altitude)) {
+                hasCollision = true;
+            }
+
             if (hasCollision) {
                 continue;
             }
             
             // 计算成本：距离 + 信号强度 + 启发式（到目标的距离）
-            double distanceCost = _haversineDistance(current.coord, candidate);
-            double signalCost = -calculateSignalStrength(candidate) * _config.strengthMultiplier;
+            double distanceCost = _haversineDistance(current.coord, candidate) * uiWeights.distance;
+            double signalCost = -calculateSignalStrength(candidate) * signalCostScale * uiWeights.signal;
             double heuristicCost = _haversineDistance(candidate, goal) * 2;  // 启发式成本
-            double totalCost = current.cost + distanceCost + signalCost + heuristicCost;
+            double environmentCost = _calculateEnvironmentCost(candidate);
+            double totalCost = current.cost + distanceCost + signalCost + heuristicCost + environmentCost;
             
             // 创建新节点
             Node newNode;
             newNode.coord = candidate;
             newNode.cost = totalCost;
             newNode.parent = current.index;
-            newNode.index = nodes.size() - 1;
+            newNode.index = nodes.size();
             nodes.append(newNode);
             openSet.push(newNode);
             validCandidates++;
@@ -1327,7 +2329,7 @@ QVector<QGeoCoordinate> TowerOptimizer::_planPathAStarNew(const QGeoCoordinate& 
         QVector<int> pathIndices;
         int currentIdx = goalNodeIdx;
         
-        while (currentIdx >= 0) {
+        while (currentIdx >= 0 && currentIdx < nodes.size()) {
             pathIndices.prepend(currentIdx);
             currentIdx = nodes[currentIdx].parent;
         }
@@ -1357,11 +2359,6 @@ QVector<QGeoCoordinate> TowerOptimizer::_planPathAStarNew(const QGeoCoordinate& 
 
 QVector<QGeoCoordinate> TowerOptimizer::optimizePathAStarNew(const QVector<QGeoCoordinate>& originalPath, double altitude)
 {
-    qWarning() << "[Attractors-C++] at optimizePathAStarNew start extraCount="
-               << _extraAttractors.size()
-               << "alt=" << altitude
-               << "wps=" << originalPath.size();
-
     writeTowerOptimizeLog(QString("Public method: optimizePathAStarNew called with %1 waypoints, altitude: %2")
                           .arg(originalPath.size()).arg(altitude));
 

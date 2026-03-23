@@ -9,6 +9,9 @@ import QGroundControl 1.0
 
 Item {
     id: root
+    // Pure visualization overlay: never consume map click/drag events.
+    enabled: false
+    property bool verboseLogging: false
     
     // Inputs provided by Loader in FlightMap.qml
     property var map: null
@@ -32,14 +35,21 @@ Item {
             ctx.reset()
             ctx.clearRect(0,0,width,height)
             
-            console.log('[WeatherNoFlyLayer] Painting', towerModel.count, 'zones', 'canvas size:', width, 'x', height)
+            if (verboseLogging) {
+                console.log('[WeatherNoFlyLayer] Painting', towerModel.count, 'zones', 'canvas size:', width, 'x', height)
+            }
             
-            // Draw only sensor no-fly zones (skip towers)
+            // Draw only sensor no-fly zones (skip towers/suitable/warning)
             for (var i = 0; i < towerModel.count; i++) {
                 var tower = towerModel.get(i)
                 
                 // Only draw circles for sensors
                 if (tower.type !== 'sensor') {
+                    continue
+                }
+
+                var weatherType = (tower.weather_type || (tower.no_fly_radius > 0 ? 'no_fly' : 'suitable')).toString().toLowerCase()
+                if (weatherType !== 'no_fly') {
                     continue
                 }
                 
@@ -49,7 +59,11 @@ Item {
                 var screenPos = root.map.fromCoordinate(coord, false)
                 
                 // Get radius in meters, convert to screen pixels
-                var radiusMeters = tower.no_fly_radius || root.defaultSensorRadius
+                var parsedRadius = Number(tower.no_fly_radius)
+                var radiusMeters = isFinite(parsedRadius) ? parsedRadius : root.defaultSensorRadius
+                if (radiusMeters <= 0) {
+                    continue
+                }
                 
                 // Approximate: 1 degree latitude ≈ 111,320 meters
                 // Calculate offset coordinate at radius distance
@@ -64,13 +78,9 @@ Item {
                 var directionSymbol = (direction === 'up') ? '↑' : '↓'
                 var directionText = (direction === 'up') ? '向上禁飞' : '向下禁飞'
                 
-                // Color scheme for better visibility on satellite imagery
-                // Up (high altitude restriction): Orange/Amber - stands out against green vegetation
-                // Down (low altitude restriction): Purple/Magenta - contrasts with yellow terrain
-                var isUp = (direction === 'up')
-                var fillColor = isUp ? 'rgba(255, 140, 0, 0.35)' : 'rgba(138, 43, 226, 0.35)'  // Orange vs Purple
-                var borderColor = isUp ? 'rgba(255, 140, 0, 1.0)' : 'rgba(138, 43, 226, 1.0)'
-                var textColor = isUp ? 'rgba(255, 140, 0, 1.0)' : 'rgba(138, 43, 226, 1.0)'
+                var fillColor = 'rgba(255, 32, 32, 0.26)'
+                var borderColor = 'rgba(255, 48, 48, 0.95)'
+                var textColor = 'rgba(255, 48, 48, 1.0)'
                 
                 // Draw filled circle with border for sensor
                 ctx.fillStyle = fillColor
@@ -97,7 +107,9 @@ Item {
                 var textHeight = 90
                 var padding = 20
                 
-                console.log('[WeatherNoFlyLayer] Font set to:', ctx.font, 'line1Width:', line1Width, 'line2Width:', line2Width)
+                if (verboseLogging) {
+                    console.log('[WeatherNoFlyLayer] Font set to:', ctx.font, 'line1Width:', line1Width, 'line2Width:', line2Width)
+                }
                 
                 // Draw text lines with white color for better visibility
                 ctx.save()
@@ -121,7 +133,9 @@ Item {
                 // ctx.fillText(line2, scaledX, scaledY2)
                 ctx.restore()
                 
-                console.log('[WeatherNoFlyLayer] Drew no-fly zone for sensor', tower.name, 'at', screenPos.x, screenPos.y, 'radius', radiusPixels, 'px', 'height:', height, 'direction:', direction)
+                if (verboseLogging) {
+                    console.log('[WeatherNoFlyLayer] Drew no-fly zone for sensor', tower.name, 'type:', weatherType, 'at', screenPos.x, screenPos.y, 'radius', radiusPixels, 'px', 'height:', height, 'direction:', direction)
+                }
             }
         }
         

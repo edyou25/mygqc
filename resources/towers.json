@@ -1,50 +1,1991 @@
 [
   {
     "name": "Tower1",
-    "latitude": 22.710291217916406,
-    "longitude": 114.40399596630152,
+    "latitude": 23.08357,
+    "longitude": 113.282676,
     "type": "tower"
   },
   {
     "name": "Tower2",
-    "latitude": 22.711232863891194,
-    "longitude": 114.40828193416829,
+    "latitude": 23.080281,
+    "longitude": 113.295851,
     "type": "tower"
   },
   {
     "name": "Tower3",
-    "latitude": 22.70719579378946,
-    "longitude": 114.40981129360846,
+    "latitude": 23.084716,
+    "longitude": 113.308675,
     "type": "tower"
   },
   {
     "name": "Tower4",
-    "latitude": 22.708194,
-    "longitude": 114.403611,
+    "latitude": 23.073062,
+    "longitude": 113.274973,
     "type": "tower"
   },
   {
     "name": "Tower5",
-    "latitude": 22.705966, 
-    "longitude": 114.404591,
+    "latitude": 23.083645,
+    "longitude": 113.285896,
     "type": "tower"
   },
   {
-    "name": "Sensor1",
-    "latitude": 22.7071198,
-    "longitude": 114.4041825,
-    "type": "sensor",
-    "direction": "under",
-    "height": 100,
-    "no_fly_radius": 100
+    "name": "Tower6",
+    "latitude": 23.081665,
+    "longitude": 113.286458,
+    "type": "tower"
   },
   {
-    "name": "Sensor2",
-    "latitude": 22.713032863891194,
-    "longitude": 114.39183612082564,
+    "name": "Tower7",
+    "latitude": 23.078868,
+    "longitude": 113.275387,
+    "type": "tower"
+  },
+  {
+    "name": "Tower8",
+    "latitude": 23.074836,
+    "longitude": 113.284791,
+    "type": "tower"
+  },
+  {
+    "name": "Tower9",
+    "latitude": 23.080111,
+    "longitude": 113.283793,
+    "type": "tower"
+  },
+  {
+    "name": "Tower10",
+    "latitude": 23.090278,
+    "longitude": 113.253611,
+    "type": "tower"
+  },
+  {
+    "name": "Tower11",
+    "latitude": 23.089328,
+    "longitude": 113.310117,
+    "type": "tower"
+  },
+  {
+    "name": "Tower12",
+    "latitude": 23.097649,
+    "longitude": 113.303722,
+    "type": "tower"
+  },
+  {
+    "name": "Tower13",
+    "latitude": 23.077468,
+    "longitude": 113.263914,
+    "type": "tower"
+  },
+  {
+    "name": "Tower14",
+    "latitude": 23.091121,
+    "longitude": 113.259161,
+    "type": "tower"
+  },
+  {
+    "name": "Tower15",
+    "latitude": 23.100883,
+    "longitude": 113.282497,
+    "type": "tower"
+  },
+  {
+    "name": "Tower16",
+    "latitude": 23.070967,
+    "longitude": 113.273491,
+    "type": "tower"
+  },
+  {
+    "name": "Tower17",
+    "latitude": 23.095207,
+    "longitude": 113.307419,
+    "type": "tower"
+  },
+  {
+    "name": "Tower18",
+    "latitude": 23.088097,
+    "longitude": 113.313119,
+    "type": "tower"
+  },
+  {
+    "name": "Tower19",
+    "latitude": 23.075278,
+    "longitude": 113.281111,
+    "type": "tower"
+  },
+  {
+    "name": "Tower20",
+    "latitude": 23.091287,
+    "longitude": 113.313072,
+    "type": "tower"
+  },
+  {
+    "name": "Tower21",
+    "latitude": 23.070621,
+    "longitude": 113.277454,
+    "type": "tower"
+  },
+  {
+    "name": "Tower22",
+    "latitude": 23.080981,
+    "longitude": 113.268351,
+    "type": "tower"
+  },
+  {
+    "name": "Tower23",
+    "latitude": 23.087365,
+    "longitude": 113.284813,
+    "type": "tower"
+  },
+  {
+    "name": "Tower24",
+    "latitude": 23.098211,
+    "longitude": 113.280161,
+    "type": "tower"
+  },
+  {
+    "name": "Tower25",
+    "latitude": 23.098711,
+    "longitude": 113.278561,
+    "type": "tower"
+  },
+  {
+    "name": "Tower26",
+    "latitude": 23.088131,
+    "longitude": 113.269021,
+    "type": "tower"
+  },
+  {
+    "name": "Tower27",
+    "latitude": 23.081076,
+    "longitude": 113.268721,
+    "type": "tower"
+  },
+  {
+    "name": "Tower28",
+    "latitude": 23.078341,
+    "longitude": 113.284721,
+    "type": "tower"
+  },
+  {
+    "name": "Tower29",
+    "latitude": 23.081714,
+    "longitude": 113.286379,
+    "type": "tower"
+  },
+  {
+    "name": "Tower30",
+    "latitude": 23.074611,
+    "longitude": 113.284451,
+    "type": "tower"
+  },
+  {
+    "name": "Tower31",
+    "latitude": 23.074832,
+    "longitude": 113.270486,
+    "type": "tower"
+  },
+  {
+    "name": "Tower32",
+    "latitude": 23.074444,
+    "longitude": 113.267777,
+    "type": "tower"
+  },
+  {
+    "name": "Tower33",
+    "latitude": 23.076822,
+    "longitude": 113.289552,
+    "type": "tower"
+  },
+  {
+    "name": "Tower34",
+    "latitude": 23.073291,
+    "longitude": 113.268761,
+    "type": "tower"
+  },
+  {
+    "name": "Tower35",
+    "latitude": 23.076711,
+    "longitude": 113.265111,
+    "type": "tower"
+  },
+  {
+    "name": "Tower36",
+    "latitude": 23.070311,
+    "longitude": 113.273111,
+    "type": "tower"
+  },
+  {
+    "name": "Tower37",
+    "latitude": 23.08155,
+    "longitude": 113.280389,
+    "type": "tower"
+  },
+  {
+    "name": "Tower38",
+    "latitude": 23.086871,
+    "longitude": 113.309911,
+    "type": "tower"
+  },
+  {
+    "name": "Tower39",
+    "latitude": 23.089016,
+    "longitude": 113.295524,
+    "type": "tower"
+  },
+  {
+    "name": "Tower40",
+    "latitude": 23.089421,
+    "longitude": 113.305621,
+    "type": "tower"
+  },
+  {
+    "name": "Tower41",
+    "latitude": 23.086305,
+    "longitude": 113.295447,
+    "type": "tower"
+  },
+  {
+    "name": "Tower42",
+    "latitude": 23.091389,
+    "longitude": 113.274722,
+    "type": "tower"
+  },
+  {
+    "name": "Tower43",
+    "latitude": 23.090663,
+    "longitude": 113.306811,
+    "type": "tower"
+  },
+  {
+    "name": "Tower44",
+    "latitude": 23.090364,
+    "longitude": 113.26145,
+    "type": "tower"
+  },
+  {
+    "name": "Tower45",
+    "latitude": 23.090452,
+    "longitude": 113.280858,
+    "type": "tower"
+  },
+  {
+    "name": "Tower46",
+    "latitude": 23.074954,
+    "longitude": 113.270817,
+    "type": "tower"
+  },
+  {
+    "name": "Tower47",
+    "latitude": 23.096872,
+    "longitude": 113.269354,
+    "type": "tower"
+  },
+  {
+    "name": "Tower48",
+    "latitude": 23.098781,
+    "longitude": 113.279151,
+    "type": "tower"
+  },
+  {
+    "name": "Tower49",
+    "latitude": 23.089891,
+    "longitude": 113.269741,
+    "type": "tower"
+  },
+  {
+    "name": "Tower50",
+    "latitude": 23.087411,
+    "longitude": 113.300871,
+    "type": "tower"
+  },
+  {
+    "name": "Tower51",
+    "latitude": 23.08838,
+    "longitude": 113.315238,
+    "type": "tower"
+  },
+  {
+    "name": "Tower52",
+    "latitude": 23.087631,
+    "longitude": 113.304921,
+    "type": "tower"
+  },
+  {
+    "name": "Tower53",
+    "latitude": 23.090461,
+    "longitude": 113.296706,
+    "type": "tower"
+  },
+  {
+    "name": "Tower54",
+    "latitude": 23.096881,
+    "longitude": 113.283434,
+    "type": "tower"
+  },
+  {
+    "name": "Tower55",
+    "latitude": 23.083111,
+    "longitude": 113.269921,
+    "type": "tower"
+  },
+  {
+    "name": "Tower56",
+    "latitude": 23.084191,
+    "longitude": 113.307415,
+    "type": "tower"
+  },
+  {
+    "name": "Tower57",
+    "latitude": 23.087638,
+    "longitude": 113.306744,
+    "type": "tower"
+  },
+  {
+    "name": "Tower58",
+    "latitude": 23.090701,
+    "longitude": 113.254408,
+    "type": "tower"
+  },
+  {
+    "name": "Tower59",
+    "latitude": 23.09835,
+    "longitude": 113.282403,
+    "type": "tower"
+  },
+  {
+    "name": "Tower60",
+    "latitude": 23.092581,
+    "longitude": 113.315256,
+    "type": "tower"
+  },
+  {
+    "name": "Tower61",
+    "latitude": 23.102688,
+    "longitude": 113.267656,
+    "type": "tower"
+  },
+  {
+    "name": "Tower62",
+    "latitude": 23.099341,
+    "longitude": 113.271477,
+    "type": "tower"
+  },
+  {
+    "name": "Tower63",
+    "latitude": 23.091604,
+    "longitude": 113.296028,
+    "type": "tower"
+  },
+  {
+    "name": "Tower64",
+    "latitude": 23.092836,
+    "longitude": 113.299932,
+    "type": "tower"
+  },
+  {
+    "name": "Tower65",
+    "latitude": 23.090437,
+    "longitude": 113.29673,
+    "type": "tower"
+  },
+  {
+    "name": "Tower66",
+    "latitude": 23.086333,
+    "longitude": 113.302813,
+    "type": "tower"
+  },
+  {
+    "name": "Tower67",
+    "latitude": 23.088835,
+    "longitude": 113.279151,
+    "type": "tower"
+  },
+  {
+    "name": "Tower68",
+    "latitude": 23.086418,
+    "longitude": 113.291659,
+    "type": "tower"
+  },
+  {
+    "name": "Tower69",
+    "latitude": 23.08595,
+    "longitude": 113.269643,
+    "type": "tower"
+  },
+  {
+    "name": "Tower70",
+    "latitude": 23.091969,
+    "longitude": 113.297087,
+    "type": "tower"
+  },
+  {
+    "name": "Tower71",
+    "latitude": 23.097706,
+    "longitude": 113.303385,
+    "type": "tower"
+  },
+  {
+    "name": "Tower72",
+    "latitude": 23.091673,
+    "longitude": 113.305054,
+    "type": "tower"
+  },
+  {
+    "name": "Tower73",
+    "latitude": 23.103521,
+    "longitude": 113.273312,
+    "type": "tower"
+  },
+  {
+    "name": "Tower74",
+    "latitude": 23.083639,
+    "longitude": 113.285911,
+    "type": "tower"
+  },
+  {
+    "name": "Tower75",
+    "latitude": 23.083124,
+    "longitude": 113.28923,
+    "type": "tower"
+  },
+  {
+    "name": "Tower76",
+    "latitude": 23.091899,
+    "longitude": 113.28372,
+    "type": "tower"
+  },
+  {
+    "name": "Tower77",
+    "latitude": 23.079787,
+    "longitude": 113.280699,
+    "type": "tower"
+  },
+  {
+    "name": "Tower78",
+    "latitude": 23.081661,
+    "longitude": 113.272494,
+    "type": "tower"
+  },
+  {
+    "name": "Tower79",
+    "latitude": 23.092976,
+    "longitude": 113.291264,
+    "type": "tower"
+  },
+  {
+    "name": "Tower80",
+    "latitude": 23.079753,
+    "longitude": 113.275857,
+    "type": "tower"
+  },
+  {
+    "name": "Tower81",
+    "latitude": 23.088702,
+    "longitude": 113.272082,
+    "type": "tower"
+  },
+  {
+    "name": "Tower82",
+    "latitude": 23.094419,
+    "longitude": 113.280523,
+    "type": "tower"
+  },
+  {
+    "name": "Tower83",
+    "latitude": 23.07752,
+    "longitude": 113.275277,
+    "type": "tower"
+  },
+  {
+    "name": "Tower84",
+    "latitude": 23.105718,
+    "longitude": 113.265741,
+    "type": "tower"
+  },
+  {
+    "name": "Tower85",
+    "latitude": 23.077501,
+    "longitude": 113.275254,
+    "type": "tower"
+  },
+  {
+    "name": "Tower86",
+    "latitude": 23.091445,
+    "longitude": 113.288984,
+    "type": "tower"
+  },
+  {
+    "name": "Tower87",
+    "latitude": 23.089403,
+    "longitude": 113.298207,
+    "type": "tower"
+  },
+  {
+    "name": "Tower88",
+    "latitude": 23.089461,
+    "longitude": 113.318083,
+    "type": "tower"
+  },
+  {
+    "name": "Tower89",
+    "latitude": 23.091994,
+    "longitude": 113.275594,
+    "type": "tower"
+  },
+  {
+    "name": "Tower90",
+    "latitude": 23.080077,
+    "longitude": 113.286274,
+    "type": "tower"
+  },
+  {
+    "name": "Tower91",
+    "latitude": 23.086854,
+    "longitude": 113.266187,
+    "type": "tower"
+  },
+  {
+    "name": "Tower92",
+    "latitude": 23.077557,
+    "longitude": 113.263894,
+    "type": "tower"
+  },
+  {
+    "name": "Tower93",
+    "latitude": 23.095332,
+    "longitude": 113.307476,
+    "type": "tower"
+  },
+  {
+    "name": "Tower94",
+    "latitude": 23.101378,
+    "longitude": 113.279777,
+    "type": "tower"
+  },
+  {
+    "name": "Tower95",
+    "latitude": 23.083073,
+    "longitude": 113.264611,
+    "type": "tower"
+  },
+  {
+    "name": "Tower96",
+    "latitude": 23.088997,
+    "longitude": 113.278686,
+    "type": "tower"
+  },
+  {
+    "name": "Tower97",
+    "latitude": 23.095861,
+    "longitude": 113.275951,
+    "type": "tower"
+  },
+  {
+    "name": "Tower98",
+    "latitude": 23.084099,
+    "longitude": 113.308112,
+    "type": "tower"
+  },
+  {
+    "name": "Tower99",
+    "latitude": 23.087963,
+    "longitude": 113.292677,
+    "type": "tower"
+  },
+  {
+    "name": "Tower100",
+    "latitude": 23.090831,
+    "longitude": 113.28908,
+    "type": "tower"
+  },
+  {
+    "name": "Tower101",
+    "latitude": 23.08048,
+    "longitude": 113.286259,
+    "type": "tower"
+  },
+  {
+    "name": "Tower102",
+    "latitude": 23.092941,
+    "longitude": 113.304112,
+    "type": "tower"
+  },
+  {
+    "name": "Tower103",
+    "latitude": 23.078294,
+    "longitude": 113.278428,
+    "type": "tower"
+  },
+  {
+    "name": "Tower104",
+    "latitude": 23.097261,
+    "longitude": 113.293031,
+    "type": "tower"
+  },
+  {
+    "name": "Tower105",
+    "latitude": 23.088871,
+    "longitude": 113.266241,
+    "type": "tower"
+  },
+  {
+    "name": "Tower106",
+    "latitude": 23.093622,
+    "longitude": 113.271041,
+    "type": "tower"
+  },
+  {
+    "name": "Tower107",
+    "latitude": 23.093462,
+    "longitude": 113.299069,
+    "type": "tower"
+  },
+  {
+    "name": "Tower108",
+    "latitude": 23.093576,
+    "longitude": 113.293811,
+    "type": "tower"
+  },
+  {
+    "name": "Tower109",
+    "latitude": 23.091012,
+    "longitude": 113.303359,
+    "type": "tower"
+  },
+  {
+    "name": "Tower110",
+    "latitude": 23.09001,
+    "longitude": 113.26422,
+    "type": "tower"
+  },
+  {
+    "name": "Tower111",
+    "latitude": 23.091861,
+    "longitude": 113.26299,
+    "type": "tower"
+  },
+  {
+    "name": "Tower112",
+    "latitude": 23.087614,
+    "longitude": 113.30683,
+    "type": "tower"
+  },
+  {
+    "name": "Tower113",
+    "latitude": 23.092925,
+    "longitude": 113.269815,
+    "type": "tower"
+  },
+  {
+    "name": "Tower114",
+    "latitude": 23.085146,
+    "longitude": 113.274087,
+    "type": "tower"
+  },
+  {
+    "name": "Tower115",
+    "latitude": 23.080015,
+    "longitude": 113.263536,
+    "type": "tower"
+  },
+  {
+    "name": "Tower116",
+    "latitude": 23.07586,
+    "longitude": 113.290068,
+    "type": "tower"
+  },
+  {
+    "name": "Tower117",
+    "latitude": 23.090392,
+    "longitude": 113.267341,
+    "type": "tower"
+  },
+  {
+    "name": "Tower118",
+    "latitude": 23.076815,
+    "longitude": 113.279523,
+    "type": "tower"
+  },
+  {
+    "name": "Tower119",
+    "latitude": 23.090531,
+    "longitude": 113.269202,
+    "type": "tower"
+  },
+  {
+    "name": "Tower120",
+    "latitude": 23.097453,
+    "longitude": 113.300657,
+    "type": "tower"
+  },
+  {
+    "name": "Tower121",
+    "latitude": 23.092198,
+    "longitude": 113.318017,
+    "type": "tower"
+  },
+  {
+    "name": "Tower122",
+    "latitude": 23.092707,
+    "longitude": 113.286182,
+    "type": "tower"
+  },
+  {
+    "name": "Tower123",
+    "latitude": 23.088005,
+    "longitude": 113.255326,
+    "type": "tower"
+  },
+  {
+    "name": "Tower124",
+    "latitude": 23.085455,
+    "longitude": 113.290985,
+    "type": "tower"
+  },
+  {
+    "name": "Tower125",
+    "latitude": 23.074455,
+    "longitude": 113.2677,
+    "type": "tower"
+  },
+  {
+    "name": "Tower126",
+    "latitude": 23.082914,
+    "longitude": 113.256786,
+    "type": "tower"
+  },
+  {
+    "name": "Tower127",
+    "latitude": 23.090925,
+    "longitude": 113.256521,
+    "type": "tower"
+  },
+  {
+    "name": "Tower128",
+    "latitude": 23.094147,
+    "longitude": 113.280771,
+    "type": "tower"
+  },
+  {
+    "name": "Tower129",
+    "latitude": 23.096173,
+    "longitude": 113.26237,
+    "type": "tower"
+  },
+  {
+    "name": "Tower130",
+    "latitude": 23.093739,
+    "longitude": 113.305037,
+    "type": "tower"
+  },
+  {
+    "name": "Tower131",
+    "latitude": 23.093615,
+    "longitude": 113.314337,
+    "type": "tower"
+  },
+  {
+    "name": "Tower132",
+    "latitude": 23.088889,
+    "longitude": 113.288056,
+    "type": "tower"
+  },
+  {
+    "name": "Tower133",
+    "latitude": 23.094094,
+    "longitude": 113.316304,
+    "type": "tower"
+  },
+  {
+    "name": "Tower134",
+    "latitude": 23.091711,
+    "longitude": 113.305211,
+    "type": "tower"
+  },
+  {
+    "name": "Tower135",
+    "latitude": 23.080911,
+    "longitude": 113.267254,
+    "type": "tower"
+  },
+  {
+    "name": "Tower136",
+    "latitude": 23.089519,
+    "longitude": 113.31801,
+    "type": "tower"
+  },
+  {
+    "name": "Tower137",
+    "latitude": 23.075362,
+    "longitude": 113.2763,
+    "type": "tower"
+  },
+  {
+    "name": "Tower138",
+    "latitude": 23.083586,
+    "longitude": 113.287768,
+    "type": "tower"
+  },
+  {
+    "name": "Tower139",
+    "latitude": 23.09841,
+    "longitude": 113.290787,
+    "type": "tower"
+  },
+  {
+    "name": "Tower140",
+    "latitude": 23.096231,
+    "longitude": 113.262953,
+    "type": "tower"
+  },
+  {
+    "name": "Tower141",
+    "latitude": 23.08984,
+    "longitude": 113.266277,
+    "type": "tower"
+  },
+  {
+    "name": "Tower142",
+    "latitude": 23.10424,
+    "longitude": 113.26569,
+    "type": "tower"
+  },
+  {
+    "name": "Tower143",
+    "latitude": 23.088331,
+    "longitude": 113.273939,
+    "type": "tower"
+  },
+  {
+    "name": "Tower144",
+    "latitude": 23.083418,
+    "longitude": 113.256363,
+    "type": "tower"
+  },
+  {
+    "name": "Tower145",
+    "latitude": 23.095109,
+    "longitude": 113.299741,
+    "type": "tower"
+  },
+  {
+    "name": "Tower146",
+    "latitude": 23.099983,
+    "longitude": 113.271871,
+    "type": "tower"
+  },
+  {
+    "name": "Tower147",
+    "latitude": 23.098318,
+    "longitude": 113.266751,
+    "type": "tower"
+  },
+  {
+    "name": "Tower148",
+    "latitude": 23.074589,
+    "longitude": 113.277896,
+    "type": "tower"
+  },
+  {
+    "name": "Tower149",
+    "latitude": 23.085392,
+    "longitude": 113.271433,
+    "type": "tower"
+  },
+  {
+    "name": "Tower150",
+    "latitude": 23.0786,
+    "longitude": 113.29336,
+    "type": "tower"
+  },
+  {
+    "name": "Tower151",
+    "latitude": 23.086412,
+    "longitude": 113.282031,
+    "type": "tower"
+  },
+  {
+    "name": "Tower152",
+    "latitude": 23.096395,
+    "longitude": 113.261061,
+    "type": "tower"
+  },
+  {
+    "name": "Tower153",
+    "latitude": 23.089884,
+    "longitude": 113.296053,
+    "type": "tower"
+  },
+  {
+    "name": "Tower154",
+    "latitude": 23.085341,
+    "longitude": 113.30478,
+    "type": "tower"
+  },
+  {
+    "name": "Tower155",
+    "latitude": 23.08191,
+    "longitude": 113.284509,
+    "type": "tower"
+  },
+  {
+    "name": "Tower156",
+    "latitude": 23.092302,
+    "longitude": 113.266264,
+    "type": "tower"
+  },
+  {
+    "name": "Tower157",
+    "latitude": 23.104884,
+    "longitude": 113.265165,
+    "type": "tower"
+  },
+  {
+    "name": "Tower158",
+    "latitude": 23.089613,
+    "longitude": 113.311913,
+    "type": "tower"
+  },
+  {
+    "name": "Tower159",
+    "latitude": 23.095827,
+    "longitude": 113.273043,
+    "type": "tower"
+  },
+  {
+    "name": "Tower160",
+    "latitude": 23.09668,
+    "longitude": 113.27088,
+    "type": "tower"
+  },
+  {
+    "name": "Tower161",
+    "latitude": 23.079744,
+    "longitude": 113.281417,
+    "type": "tower"
+  },
+  {
+    "name": "Tower162",
+    "latitude": 23.082607,
+    "longitude": 113.275336,
+    "type": "tower"
+  },
+  {
+    "name": "Tower163",
+    "latitude": 23.091842,
+    "longitude": 113.310921,
+    "type": "tower"
+  },
+  {
+    "name": "Tower164",
+    "latitude": 23.076972,
+    "longitude": 113.268472,
+    "type": "tower"
+  },
+  {
+    "name": "Tower165",
+    "latitude": 23.094328,
+    "longitude": 113.294306,
+    "type": "tower"
+  },
+  {
+    "name": "Tower166",
+    "latitude": 23.081523,
+    "longitude": 113.280334,
+    "type": "tower"
+  },
+  {
+    "name": "Tower167",
+    "latitude": 23.102965,
+    "longitude": 113.267637,
+    "type": "tower"
+  },
+  {
+    "name": "Tower168",
+    "latitude": 23.078908,
+    "longitude": 113.289984,
+    "type": "tower"
+  },
+  {
+    "name": "Tower169",
+    "latitude": 23.08454,
+    "longitude": 113.300148,
+    "type": "tower"
+  },
+  {
+    "name": "Tower170",
+    "latitude": 23.077877,
+    "longitude": 113.273559,
+    "type": "tower"
+  },
+  {
+    "name": "Tower171",
+    "latitude": 23.073069,
+    "longitude": 113.270939,
+    "type": "tower"
+  },
+  {
+    "name": "Tower172",
+    "latitude": 23.094355,
+    "longitude": 113.277472,
+    "type": "tower"
+  },
+  {
+    "name": "Tower173",
+    "latitude": 23.078252,
+    "longitude": 113.293442,
+    "type": "tower"
+  },
+  {
+    "name": "Tower174",
+    "latitude": 23.085678,
+    "longitude": 113.314931,
+    "type": "tower"
+  },
+  {
+    "name": "Tower175",
+    "latitude": 23.074585,
+    "longitude": 113.288133,
+    "type": "tower"
+  },
+  {
+    "name": "Tower176",
+    "latitude": 23.093894,
+    "longitude": 113.269676,
+    "type": "tower"
+  },
+  {
+    "name": "Tower177",
+    "latitude": 23.093061,
+    "longitude": 113.278611,
+    "type": "tower"
+  },
+  {
+    "name": "Tower178",
+    "latitude": 23.081408,
+    "longitude": 113.275488,
+    "type": "tower"
+  },
+  {
+    "name": "Tower179",
+    "latitude": 23.086896,
+    "longitude": 113.287466,
+    "type": "tower"
+  },
+  {
+    "name": "Tower180",
+    "latitude": 23.097186,
+    "longitude": 113.300673,
+    "type": "tower"
+  },
+  {
+    "name": "Tower181",
+    "latitude": 23.091131,
+    "longitude": 113.292781,
+    "type": "tower"
+  },
+  {
+    "name": "Tower182",
+    "latitude": 23.075714,
+    "longitude": 113.284316,
+    "type": "tower"
+  },
+  {
+    "name": "Tower183",
+    "latitude": 23.096695,
+    "longitude": 113.27097,
+    "type": "tower"
+  },
+  {
+    "name": "Tower184",
+    "latitude": 23.099352,
+    "longitude": 113.272483,
+    "type": "tower"
+  },
+  {
+    "name": "Tower185",
+    "latitude": 23.091289,
+    "longitude": 113.313254,
+    "type": "tower"
+  },
+  {
+    "name": "Tower186",
+    "latitude": 23.085568,
+    "longitude": 113.279229,
+    "type": "tower"
+  },
+  {
+    "name": "Tower187",
+    "latitude": 23.084457,
+    "longitude": 113.281803,
+    "type": "tower"
+  },
+  {
+    "name": "Tower188",
+    "latitude": 23.085393,
+    "longitude": 113.297056,
+    "type": "tower"
+  },
+  {
+    "name": "Tower189",
+    "latitude": 23.081676,
+    "longitude": 113.257802,
+    "type": "tower"
+  },
+  {
+    "name": "Tower190",
+    "latitude": 23.104095,
+    "longitude": 113.27077,
+    "type": "tower"
+  },
+  {
+    "name": "Tower191",
+    "latitude": 23.079734,
+    "longitude": 113.280583,
+    "type": "tower"
+  },
+  {
+    "name": "Tower192",
+    "latitude": 23.084028,
+    "longitude": 113.264741,
+    "type": "tower"
+  },
+  {
+    "name": "Tower193",
+    "latitude": 23.075455,
+    "longitude": 113.26688,
+    "type": "tower"
+  },
+  {
+    "name": "Tower194",
+    "latitude": 23.089891,
+    "longitude": 113.281175,
+    "type": "tower"
+  },
+  {
+    "name": "Tower195",
+    "latitude": 23.07243,
+    "longitude": 113.283654,
+    "type": "tower"
+  },
+  {
+    "name": "Tower196",
+    "latitude": 23.078141,
+    "longitude": 113.284889,
+    "type": "tower"
+  },
+  {
+    "name": "Tower197",
+    "latitude": 23.093212,
+    "longitude": 113.286274,
+    "type": "tower"
+  },
+  {
+    "name": "Tower198",
+    "latitude": 23.084809,
+    "longitude": 113.295269,
+    "type": "tower"
+  },
+  {
+    "name": "Tower199",
+    "latitude": 23.075188,
+    "longitude": 113.284339,
+    "type": "tower"
+  },
+  {
+    "name": "Tower200",
+    "latitude": 23.088832,
+    "longitude": 113.256411,
+    "type": "tower"
+  },
+  {
+    "name": "Tower201",
+    "latitude": 23.090157,
+    "longitude": 113.261532,
+    "type": "tower"
+  },
+  {
+    "name": "Tower202",
+    "latitude": 23.095493,
+    "longitude": 113.286745,
+    "type": "tower"
+  },
+  {
+    "name": "Tower203",
+    "latitude": 23.092417,
+    "longitude": 113.279874,
+    "type": "tower"
+  },
+  {
+    "name": "Tower204",
+    "latitude": 23.091542,
+    "longitude": 113.296277,
+    "type": "tower"
+  },
+  {
+    "name": "Tower205",
+    "latitude": 23.093798,
+    "longitude": 113.276977,
+    "type": "tower"
+  },
+  {
+    "name": "Tower206",
+    "latitude": 23.084011,
+    "longitude": 113.27155,
+    "type": "tower"
+  },
+  {
+    "name": "Tower207",
+    "latitude": 23.081538,
+    "longitude": 113.28962,
+    "type": "tower"
+  },
+  {
+    "name": "Tower208",
+    "latitude": 23.083579,
+    "longitude": 113.291707,
+    "type": "tower"
+  },
+  {
+    "name": "Tower209",
+    "latitude": 23.097362,
+    "longitude": 113.293145,
+    "type": "tower"
+  },
+  {
+    "name": "Tower210",
+    "latitude": 23.081511,
+    "longitude": 113.269641,
+    "type": "tower"
+  },
+  {
+    "name": "Tower211",
+    "latitude": 23.090413,
+    "longitude": 113.269226,
+    "type": "tower"
+  },
+  {
+    "name": "Tower212",
+    "latitude": 23.086535,
+    "longitude": 113.25775,
+    "type": "tower"
+  },
+  {
+    "name": "Tower213",
+    "latitude": 23.10641,
+    "longitude": 113.26532,
+    "type": "tower"
+  },
+  {
+    "name": "Tower214",
+    "latitude": 23.092315,
+    "longitude": 113.311893,
+    "type": "tower"
+  },
+  {
+    "name": "Tower215",
+    "latitude": 23.100777,
+    "longitude": 113.265138,
+    "type": "tower"
+  },
+  {
+    "name": "Tower216",
+    "latitude": 23.077174,
+    "longitude": 113.288463,
+    "type": "tower"
+  },
+  {
+    "name": "Tower217",
+    "latitude": 23.076269,
+    "longitude": 113.289518,
+    "type": "tower"
+  },
+  {
+    "name": "Tower218",
+    "latitude": 23.089313,
+    "longitude": 113.278233,
+    "type": "tower"
+  },
+  {
+    "name": "Tower219",
+    "latitude": 23.072702,
+    "longitude": 113.281481,
+    "type": "tower"
+  },
+  {
+    "name": "Tower220",
+    "latitude": 23.074931,
+    "longitude": 113.281808,
+    "type": "tower"
+  },
+  {
+    "name": "Tower221",
+    "latitude": 23.087465,
+    "longitude": 113.306923,
+    "type": "tower"
+  },
+  {
+    "name": "Tower222",
+    "latitude": 23.079162,
+    "longitude": 113.264368,
+    "type": "tower"
+  },
+  {
+    "name": "Tower223",
+    "latitude": 23.096793,
+    "longitude": 113.269502,
+    "type": "tower"
+  },
+  {
+    "name": "Tower224",
+    "latitude": 23.087003,
+    "longitude": 113.277736,
+    "type": "tower"
+  },
+  {
+    "name": "Tower225",
+    "latitude": 23.083851,
+    "longitude": 113.307726,
+    "type": "tower"
+  },
+  {
+    "name": "Tower226",
+    "latitude": 23.09388,
+    "longitude": 113.303291,
+    "type": "tower"
+  },
+  {
+    "name": "Tower227",
+    "latitude": 23.075759,
+    "longitude": 113.28718,
+    "type": "tower"
+  },
+  {
+    "name": "Tower228",
+    "latitude": 23.0862,
+    "longitude": 113.302542,
+    "type": "tower"
+  },
+  {
+    "name": "Tower229",
+    "latitude": 23.08811,
+    "longitude": 113.30005,
+    "type": "tower"
+  },
+  {
+    "name": "Tower230",
+    "latitude": 23.103509,
+    "longitude": 113.272418,
+    "type": "tower"
+  },
+  {
+    "name": "Tower231",
+    "latitude": 23.093411,
+    "longitude": 113.260979,
+    "type": "tower"
+  },
+  {
+    "name": "Tower232",
+    "latitude": 23.100023,
+    "longitude": 113.26849,
+    "type": "tower"
+  },
+  {
+    "name": "Tower233",
+    "latitude": 23.094454,
+    "longitude": 113.302003,
+    "type": "tower"
+  },
+  {
+    "name": "Tower234",
+    "latitude": 23.095251,
+    "longitude": 113.265265,
+    "type": "tower"
+  },
+  {
+    "name": "Tower235",
+    "latitude": 23.097838,
+    "longitude": 113.285797,
+    "type": "tower"
+  },
+  {
+    "name": "Tower236",
+    "latitude": 23.095519,
+    "longitude": 113.286752,
+    "type": "tower"
+  },
+  {
+    "name": "Tower237",
+    "latitude": 23.092269,
+    "longitude": 113.290918,
+    "type": "tower"
+  },
+  {
+    "name": "Tower238",
+    "latitude": 23.092071,
+    "longitude": 113.301275,
+    "type": "tower"
+  },
+  {
+    "name": "Tower239",
+    "latitude": 23.07978,
+    "longitude": 113.289585,
+    "type": "tower"
+  },
+  {
+    "name": "Tower240",
+    "latitude": 23.087431,
+    "longitude": 113.253611,
+    "type": "tower"
+  },
+  {
+    "name": "Tower241",
+    "latitude": 23.07281,
+    "longitude": 113.28074,
+    "type": "tower"
+  },
+  {
+    "name": "Tower242",
+    "latitude": 23.077842,
+    "longitude": 113.26657,
+    "type": "tower"
+  },
+  {
+    "name": "Tower243",
+    "latitude": 23.101733,
+    "longitude": 113.277497,
+    "type": "tower"
+  },
+  {
+    "name": "Tower244",
+    "latitude": 23.086216,
+    "longitude": 113.302521,
+    "type": "tower"
+  },
+  {
+    "name": "Tower245",
+    "latitude": 23.089996,
+    "longitude": 113.261188,
+    "type": "tower"
+  },
+  {
+    "name": "Tower246",
+    "latitude": 23.103071,
+    "longitude": 113.267546,
+    "type": "tower"
+  },
+  {
+    "name": "Tower247",
+    "latitude": 23.094684,
+    "longitude": 113.302037,
+    "type": "tower"
+  },
+  {
+    "name": "Tower248",
+    "latitude": 23.100282,
+    "longitude": 113.268748,
+    "type": "tower"
+  },
+  {
+    "name": "Tower249",
+    "latitude": 23.096685,
+    "longitude": 113.283735,
+    "type": "tower"
+  },
+  {
+    "name": "Tower250",
+    "latitude": 23.098371,
+    "longitude": 113.263171,
+    "type": "tower"
+  },
+  {
+    "name": "Tower251",
+    "latitude": 23.096654,
+    "longitude": 113.270955,
+    "type": "tower"
+  },
+  {
+    "name": "Tower252",
+    "latitude": 23.081611,
+    "longitude": 113.275811,
+    "type": "tower"
+  },
+  {
+    "name": "Tower253",
+    "latitude": 23.08946,
+    "longitude": 113.274246,
+    "type": "tower"
+  },
+  {
+    "name": "Tower254",
+    "latitude": 23.095078,
+    "longitude": 113.309233,
+    "type": "tower"
+  },
+  {
+    "name": "Tower255",
+    "latitude": 23.089896,
+    "longitude": 113.302194,
+    "type": "tower"
+  },
+  {
+    "name": "Tower256",
+    "latitude": 23.086489,
+    "longitude": 113.257724,
+    "type": "tower"
+  },
+  {
+    "name": "Tower257",
+    "latitude": 23.079587,
+    "longitude": 113.294334,
+    "type": "tower"
+  },
+  {
+    "name": "Tower258",
+    "latitude": 23.08978,
+    "longitude": 113.301017,
+    "type": "tower"
+  },
+  {
+    "name": "Tower259",
+    "latitude": 23.090254,
+    "longitude": 113.299402,
+    "type": "tower"
+  },
+  {
+    "name": "Tower260",
+    "latitude": 23.096887,
+    "longitude": 113.27787,
+    "type": "tower"
+  },
+  {
+    "name": "Tower261",
+    "latitude": 23.084661,
+    "longitude": 113.265002,
+    "type": "tower"
+  },
+  {
+    "name": "Tower262",
+    "latitude": 23.090217,
+    "longitude": 113.281283,
+    "type": "tower"
+  },
+  {
+    "name": "Tower263",
+    "latitude": 23.076865,
+    "longitude": 113.27967,
+    "type": "tower"
+  },
+  {
+    "name": "Tower264",
+    "latitude": 23.08836,
+    "longitude": 113.31755,
+    "type": "tower"
+  },
+  {
+    "name": "Tower265",
+    "latitude": 23.090445,
+    "longitude": 113.258817,
+    "type": "tower"
+  },
+  {
+    "name": "Tower266",
+    "latitude": 23.087956,
+    "longitude": 113.26081,
+    "type": "tower"
+  },
+  {
+    "name": "Tower267",
+    "latitude": 23.095577,
+    "longitude": 113.297343,
+    "type": "tower"
+  },
+  {
+    "name": "Tower268",
+    "latitude": 23.096775,
+    "longitude": 113.291348,
+    "type": "tower"
+  },
+  {
+    "name": "Tower269",
+    "latitude": 23.098347,
+    "longitude": 113.268058,
+    "type": "tower"
+  },
+  {
+    "name": "Tower270",
+    "latitude": 23.091302,
+    "longitude": 113.313145,
+    "type": "tower"
+  },
+  {
+    "name": "Tower271",
+    "latitude": 23.100748,
+    "longitude": 113.265056,
+    "type": "tower"
+  },
+  {
+    "name": "Tower272",
+    "latitude": 23.10385,
+    "longitude": 113.27008,
+    "type": "tower"
+  },
+  {
+    "name": "Tower273",
+    "latitude": 23.101202,
+    "longitude": 113.268406,
+    "type": "tower"
+  },
+  {
+    "name": "Tower274",
+    "latitude": 23.076988,
+    "longitude": 113.265024,
+    "type": "tower"
+  },
+  {
+    "name": "Tower275",
+    "latitude": 23.106568,
+    "longitude": 113.266291,
+    "type": "tower"
+  },
+  {
+    "name": "Tower276",
+    "latitude": 23.0897,
+    "longitude": 113.2569,
+    "type": "tower"
+  },
+  {
+    "name": "Tower277",
+    "latitude": 23.073326,
+    "longitude": 113.272185,
+    "type": "tower"
+  },
+  {
+    "name": "Tower278",
+    "latitude": 23.078987,
+    "longitude": 113.270549,
+    "type": "tower"
+  },
+  {
+    "name": "Tower279",
+    "latitude": 23.090363,
+    "longitude": 113.306122,
+    "type": "tower"
+  },
+  {
+    "name": "Tower280",
+    "latitude": 23.093671,
+    "longitude": 113.291932,
+    "type": "tower"
+  },
+  {
+    "name": "Tower281",
+    "latitude": 23.093753,
+    "longitude": 113.305044,
+    "type": "tower"
+  },
+  {
+    "name": "Tower282",
+    "latitude": 23.101663,
+    "longitude": 113.273855,
+    "type": "tower"
+  },
+  {
+    "name": "Tower283",
+    "latitude": 23.093398,
+    "longitude": 113.272802,
+    "type": "tower"
+  },
+  {
+    "name": "Tower284",
+    "latitude": 23.098274,
+    "longitude": 113.26678,
+    "type": "tower"
+  },
+  {
+    "name": "Tower285",
+    "latitude": 23.091206,
+    "longitude": 113.303301,
+    "type": "tower"
+  },
+  {
+    "name": "Tower286",
+    "latitude": 23.093889,
+    "longitude": 113.261111,
+    "type": "tower"
+  },
+  {
+    "name": "Tower287",
+    "latitude": 23.085132,
+    "longitude": 113.304991,
+    "type": "tower"
+  },
+  {
+    "name": "Tower288",
+    "latitude": 23.090048,
+    "longitude": 113.285427,
+    "type": "tower"
+  },
+  {
+    "name": "Tower289",
+    "latitude": 23.092497,
+    "longitude": 113.284083,
+    "type": "tower"
+  },
+  {
+    "name": "Tower290",
+    "latitude": 23.089102,
+    "longitude": 113.307687,
+    "type": "tower"
+  },
+  {
+    "name": "Tower291",
+    "latitude": 23.100276,
+    "longitude": 113.279252,
+    "type": "tower"
+  },
+  {
+    "name": "Tower292",
+    "latitude": 23.077552,
+    "longitude": 113.280289,
+    "type": "tower"
+  },
+  {
+    "name": "Tower293",
+    "latitude": 23.095211,
+    "longitude": 113.313804,
+    "type": "tower"
+  },
+  {
+    "name": "Tower294",
+    "latitude": 23.080928,
+    "longitude": 113.26742,
+    "type": "tower"
+  },
+  {
+    "name": "Tower295",
+    "latitude": 23.096688,
+    "longitude": 113.277465,
+    "type": "tower"
+  },
+  {
+    "name": "Tower296",
+    "latitude": 23.07541,
+    "longitude": 113.274625,
+    "type": "tower"
+  },
+  {
+    "name": "Tower297",
+    "latitude": 23.0898,
+    "longitude": 113.30224,
+    "type": "tower"
+  },
+  {
+    "name": "Tower298",
+    "latitude": 23.090797,
+    "longitude": 113.299671,
+    "type": "tower"
+  },
+  {
+    "name": "Tower299",
+    "latitude": 23.078889,
+    "longitude": 113.275555,
+    "type": "tower"
+  },
+  {
+    "name": "Tower300",
+    "latitude": 23.087478,
+    "longitude": 113.274172,
+    "type": "tower"
+  },
+  {
+    "name": "Tower301",
+    "latitude": 23.098462,
+    "longitude": 113.290874,
+    "type": "tower"
+  },
+  {
+    "name": "Tower302",
+    "latitude": 23.075738,
+    "longitude": 113.286205,
+    "type": "tower"
+  },
+  {
+    "name": "Tower303",
+    "latitude": 23.084368,
+    "longitude": 113.293397,
+    "type": "tower"
+  },
+  {
+    "name": "Tower304",
+    "latitude": 23.089081,
+    "longitude": 113.293977,
+    "type": "tower"
+  },
+  {
+    "name": "Tower305",
+    "latitude": 23.088788,
+    "longitude": 113.290288,
+    "type": "tower"
+  },
+  {
+    "name": "Tower306",
+    "latitude": 23.087838,
+    "longitude": 113.278324,
+    "type": "tower"
+  },
+  {
+    "name": "Tower307",
+    "latitude": 23.080556,
+    "longitude": 113.278002,
+    "type": "tower"
+  },
+  {
+    "name": "Tower308",
+    "latitude": 23.080159,
+    "longitude": 113.286314,
+    "type": "tower"
+  },
+  {
+    "name": "Tower309",
+    "latitude": 23.093039,
+    "longitude": 113.291049,
+    "type": "tower"
+  },
+  {
+    "name": "Tower310",
+    "latitude": 23.084537,
+    "longitude": 113.276817,
+    "type": "tower"
+  },
+  {
+    "name": "Tower311",
+    "latitude": 23.086814,
+    "longitude": 113.31169,
+    "type": "tower"
+  },
+  {
+    "name": "Tower312",
+    "latitude": 23.085331,
+    "longitude": 113.255705,
+    "type": "tower"
+  },
+  {
+    "name": "Tower313",
+    "latitude": 23.085374,
+    "longitude": 113.311943,
+    "type": "tower"
+  },
+  {
+    "name": "Tower314",
+    "latitude": 23.093998,
+    "longitude": 113.268538,
+    "type": "tower"
+  },
+  {
+    "name": "Tower315",
+    "latitude": 23.089451,
+    "longitude": 113.297597,
+    "type": "tower"
+  },
+  {
+    "name": "Tower316",
+    "latitude": 23.089768,
+    "longitude": 113.28474,
+    "type": "tower"
+  },
+  {
+    "name": "Tower317",
+    "latitude": 23.074829,
+    "longitude": 113.266959,
+    "type": "tower"
+  },
+  {
+    "name": "Tower318",
+    "latitude": 23.096447,
+    "longitude": 113.283564,
+    "type": "tower"
+  },
+  {
+    "name": "Tower319",
+    "latitude": 23.09177,
+    "longitude": 113.27742,
+    "type": "tower"
+  },
+  {
+    "name": "Tower320",
+    "latitude": 23.084545,
+    "longitude": 113.280814,
+    "type": "tower"
+  },
+  {
+    "name": "Tower321",
+    "latitude": 23.094561,
+    "longitude": 113.302055,
+    "type": "tower"
+  },
+  {
+    "name": "Tower322",
+    "latitude": 23.097837,
+    "longitude": 113.285796,
+    "type": "tower"
+  },
+  {
+    "name": "Tower323",
+    "latitude": 23.087351,
+    "longitude": 113.284798,
+    "type": "tower"
+  },
+  {
+    "name": "Tower324",
+    "latitude": 23.088477,
+    "longitude": 113.313268,
+    "type": "tower"
+  },
+  {
+    "name": "Weather_NoFly_GZ_A",
+    "latitude": 23.09115,
+    "longitude": 113.26956,
     "type": "sensor",
+    "weather_type": "no_fly",
+    "impact_policy": "hard_avoid",
+    "warning_level": 3,
+    "avoid_weight": 1.1,
+    "influence_radius": 85,
+    "source": "custom_test_area",
     "direction": "up",
-    "height": 100,
-    "no_fly_radius": 100
+    "height": 120,
+    "no_fly_radius": 85
+  },
+  {
+    "name": "Weather_NoFly_GZ_B",
+    "latitude": 23.09463,
+    "longitude": 113.27292,
+    "type": "sensor",
+    "weather_type": "no_fly",
+    "impact_policy": "hard_avoid",
+    "warning_level": 4,
+    "avoid_weight": 1.2,
+    "influence_radius": 95,
+    "source": "custom_test_area",
+    "direction": "up",
+    "height": 120,
+    "no_fly_radius": 95
+  },
+  {
+    "name": "Weather_NoFly_GZ_C",
+    "latitude": 23.08905,
+    "longitude": 113.27428,
+    "type": "sensor",
+    "weather_type": "no_fly",
+    "impact_policy": "hard_avoid",
+    "warning_level": 3,
+    "avoid_weight": 1.15,
+    "influence_radius": 90,
+    "source": "custom_test_area",
+    "direction": "up",
+    "height": 120,
+    "no_fly_radius": 90
   }
 ]

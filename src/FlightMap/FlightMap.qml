@@ -44,6 +44,7 @@ Map {
     property bool   planView:                       false   ///< true: map being using for Plan view, items should be draggable
 
     readonly property real  maxZoomLevel: 20
+    readonly property real  towerOverlayZ: 2000000
     // Signal strength layer visibility (contours always on when layer visible)
     property bool showSignalStrengthLayer: false
     property var  signalStrengthLayer: null
@@ -156,14 +157,32 @@ Map {
                     try {
                         var arr = JSON.parse(xhr.responseText)
                         for (var i=0; i<arr.length; i++) {
+                            var isSensor = (arr[i].type || (arr[i].name.indexOf('Sensor') !== -1 ? 'sensor' : 'tower')) === 'sensor'
+                            var parsedNoFlyRadius = Number(arr[i].no_fly_radius)
+                            if (!isFinite(parsedNoFlyRadius)) {
+                                parsedNoFlyRadius = isSensor ? 600 : 500
+                            }
+                            var parsedHeight = Number(arr[i].height)
+                            if (!isFinite(parsedHeight)) {
+                                parsedHeight = 100
+                            }
+                            var weatherType = (arr[i].weather_type !== undefined && arr[i].weather_type !== null)
+                                    ? arr[i].weather_type
+                                    : (isSensor ? (parsedNoFlyRadius > 0 ? 'no_fly' : 'suitable') : '')
+                            var parsedInfluenceRadius = Number(arr[i].influence_radius)
+                            if (!isFinite(parsedInfluenceRadius)) {
+                                parsedInfluenceRadius = 0
+                            }
                             towerModel.append({ 
                                 name: arr[i].name, 
                                 latitude: arr[i].latitude, 
                                 longitude: arr[i].longitude,
-                                type: arr[i].type || (arr[i].name.indexOf('Sensor') !== -1 ? 'sensor' : 'tower'),
-                                no_fly_radius: arr[i].no_fly_radius || (arr[i].name.indexOf('Sensor') !== -1 ? 600 : 500),
-                                height: arr[i].height || 100,
-                                direction: arr[i].direction || 'up'
+                                type: isSensor ? 'sensor' : 'tower',
+                                no_fly_radius: parsedNoFlyRadius,
+                                height: parsedHeight,
+                                direction: arr[i].direction || 'up',
+                                weather_type: weatherType,
+                                influence_radius: parsedInfluenceRadius
                             })
                         }
                     } catch(e) {
@@ -177,26 +196,31 @@ Map {
     }
 
     MapItemView {
+        z: _map.towerOverlayZ
         model: towerModel
         delegate: MapQuickItem {
+            readonly property bool _isSensor: type === 'sensor'
+            readonly property bool _compactTowerView: (!_isSensor) && (showSignalStrengthLayer || _map.zoomLevel < 15.0)
             coordinate: QtPositioning.coordinate(latitude, longitude)
             anchorPoint.x: icon.width / 2
             anchorPoint.y: icon.height
-            z: QGroundControl.zOrderMapItems
+            z: _map.towerOverlayZ
             sourceItem: Column {
-                spacing: 2
+                spacing: _compactTowerView ? 0 : 2
                 Image {
                     id: icon
-                    source: type === 'sensor' ? '/res/QGCLogoFull' : '/res/QGCLogoArrow'
-                    width: type === 'sensor' ? 48 : 40
-                    height: type === 'sensor' ? 48 : 40
+                    source: _isSensor ? '/res/QGCLogoFull' : '/res/QGCLogoArrow'
+                    width: _isSensor ? 48 : (_compactTowerView ? 18 : 32)
+                    height: _isSensor ? 48 : (_compactTowerView ? 18 : 32)
                     fillMode: Image.PreserveAspectFit
+                    smooth: !_compactTowerView
                 }
                 Rectangle {
+                    visible: _isSensor || (!_compactTowerView && _map.zoomLevel >= 16.0)
                     radius: 5
-                    color: type === 'sensor' ? Qt.rgba(1,0,0,0.8) : Qt.rgba(0,0,0,0.6)
-                    border.width: type === 'sensor' ? 2 : 0
-                    border.color: type === 'sensor' ? 'white' : 'transparent'
+                    color: _isSensor ? Qt.rgba(1,0,0,0.8) : Qt.rgba(0,0,0,0.6)
+                    border.width: _isSensor ? 2 : 0
+                    border.color: _isSensor ? 'white' : 'transparent'
                     anchors.horizontalCenter: parent.horizontalCenter
                     property int hPad: 8
                     property int vPad: 4
@@ -206,8 +230,8 @@ Map {
                         id: label
                         text: name
                         color: 'white'
-                        font.pixelSize: 18
-                        font.bold: type === 'sensor'
+                        font.pixelSize: _isSensor ? 18 : 14
+                        font.bold: _isSensor
                         anchors.centerIn: parent
                     }
                 }
@@ -222,7 +246,7 @@ Map {
         onLoaded: {
             item.map = _map
             item.towerModel = towerModel
-            item.contours = true
+            item.contours = towerModel.count <= 420 || _map.zoomLevel >= 16.0
             item.z = QGroundControl.zOrderMapItems - 1 // below markers
             signalStrengthLayer = item
         }
@@ -230,6 +254,12 @@ Map {
         Connections {
             target: _map
             function onCenterChanged() { if (signalStrengthLayer) signalStrengthLayer.map = _map }
+            function onZoomLevelChanged() {
+                if (signalStrengthLayer) {
+                    signalStrengthLayer.map = _map
+                    signalStrengthLayer.contours = towerModel.count <= 420 || _map.zoomLevel >= 16.0
+                }
+            }
         }
     }
 
@@ -241,8 +271,6 @@ Map {
         active: showWeatherLayer
         source: "qrc:/qml/QGroundControl/FlightMap/WeatherNoFlyLayer.qml"
         onLoaded: {
-            console.log('[FlightMap] WeatherNoFlyLayer loaded successfully')
-            console.log('[FlightMap] towerModel count:', towerModel.count)
             item.map = _map
             item.towerModel = towerModel
             item.z = QGroundControl.zOrderMapItems - 2
@@ -262,10 +290,5 @@ Map {
                 }
             }
         }
-    }
-    
-    // Debug: Monitor showWeatherLayer changes
-    onShowWeatherLayerChanged: {
-        console.log('[FlightMap] showWeatherLayer changed to:', showWeatherLayer)
     }
 } // Map

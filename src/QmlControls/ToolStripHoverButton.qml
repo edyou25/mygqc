@@ -34,9 +34,10 @@ Button {
     property alias  contentWidth:       innerText.contentWidth
 
     property bool forceImageScale11: false
-    property real imageScale:        forceImageScale11 && (text == "") ? 0.8 : 0.6
-    property real contentMargins:    innerText.height * 0.1
-
+    /*property real imageScale:        forceImageScale11 && (text == "") ? 0.8 : 0.6 */
+    property real imageScale: forceImageScale11 && (text == "") ? 0.85 : 0.72
+    /*property real contentMargins:    innerText.height * 0.1  */
+    property real contentMargins: ScreenTools.defaultFontPixelWidth * 0.25
     property color _currentContentColor:  (checked || pressed) ? qgcPal.buttonHighlightText : qgcPal.buttonText
     property color _currentContentColorSecondary:  (checked || pressed) ? qgcPal.buttonText : qgcPal.buttonHighlight
 

@@ -117,6 +117,8 @@ add_library(qgc
     PathOptimization/GreenlandArea.h
 	PathOptimization/WaterArea.cc
 	PathOptimization/WaterArea.h
+	PathOptimization/BuildingDense.h
+	PathOptimization/BuildingDense.cc
 )
 
 set_source_files_properties(QGCApplication.cc PROPERTIES COMPILE_DEFINITIONS APP_VERSION_STR="${APP_VERSION_STR}")

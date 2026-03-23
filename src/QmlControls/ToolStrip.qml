@@ -25,7 +25,7 @@ Rectangle {
     property alias  model:              repeater.model
     property real   maxHeight           ///< Maximum height for control, determines whether text is hidden to make control shorter
     property alias  title:              titleLabel.text
-    property var    fontSize:           ScreenTools.smallFontPointSize
+    property var    fontSize:           ScreenTools.defaultFontPointSize + 1
 
     property var _dropPanel: dropPanel
 
@@ -39,8 +39,8 @@ Rectangle {
     }
 
     // Ensure we don't get narrower than content
-    property real _idealWidth: (ScreenTools.isMobile ? ScreenTools.minTouchPixels : ScreenTools.defaultFontPixelWidth * 8) + toolStripColumn.anchors.margins * 2
-
+    /*property real _idealWidth: (ScreenTools.isMobile ? ScreenTools.minTouchPixels : ScreenTools.defaultFontPixelWidth * 8) + toolStripColumn.anchors.margins * 2 */
+    property real _idealWidth: (ScreenTools.isMobile ? ScreenTools.minTouchPixels : ScreenTools.defaultFontPixelWidth * 13) + toolStripColumn.anchors.margins * 2
     signal dropped(int index)
 
     DeadMouseArea {
@@ -69,7 +69,7 @@ Rectangle {
                 anchors.left:           parent.left
                 anchors.right:          parent.right
                 horizontalAlignment:    Text.AlignHCenter
-                font.pointSize:         ScreenTools.smallFontPointSize
+                font.pointSize:         _root.fontSize
                 visible:                title != ""
             }
 

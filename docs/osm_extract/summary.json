@@ -1,0 +1,7 @@
+{
+  "greenlands": 115,
+  "waters": 58,
+  "buildings": 4233,
+  "roads": 3042,
+  "out_dir": "/home/hw/qgroundcontrol/docs/osm_extract"
+}

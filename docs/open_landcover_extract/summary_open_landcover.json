@@ -1,0 +1,24 @@
+{
+  "existing_greenlands": 115,
+  "existing_waters": 58,
+  "candidate_greenlands_from_open_sources": 2156,
+  "candidate_waters_from_open_sources": 105,
+  "added_greenlands": 922,
+  "added_waters": 61,
+  "final_greenlands": 1037,
+  "final_waters": 119,
+  "greenland_increase": 922,
+  "water_increase": 61,
+  "sources": [
+    "ESA WorldCover",
+    "JRC Global Surface Water",
+    "Esri 10-Meter Land Cover"
+  ],
+  "parameters": {
+    "green_min_area_m2": 500.0,
+    "water_min_area_m2": 300.0,
+    "simplify_m": 4.0,
+    "jrc_occurrence_threshold": 20,
+    "jrc_seasonality_threshold": 8
+  }
+}

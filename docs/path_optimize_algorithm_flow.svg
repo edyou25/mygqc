@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="1500" viewBox="0 0 2200 1500">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#455A64"/>
+    </marker>
+    <style>
+      .title { font: 700 34px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #1A237E; }
+      .subtitle { font: 500 18px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #37474F; }
+      .heading { font: 700 24px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #263238; }
+      .box-title { font: 700 18px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #102027; }
+      .box-text { font: 500 15px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #263238; }
+      .small { font: 500 13px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #37474F; }
+      .line { stroke: #455A64; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .input { fill: #E8F5E9; stroke: #2E7D32; stroke-width: 2; rx: 14; ry: 14; }
+      .process { fill: #E3F2FD; stroke: #1565C0; stroke-width: 2; rx: 14; ry: 14; }
+      .decision { fill: #FFF3E0; stroke: #EF6C00; stroke-width: 2; }
+      .algo { fill: #F3E5F5; stroke: #7B1FA2; stroke-width: 2; rx: 14; ry: 14; }
+      .output { fill: #E0F7FA; stroke: #006064; stroke-width: 2; rx: 14; ry: 14; }
+      .param { fill: #FFFDE7; stroke: #F9A825; stroke-width: 2; rx: 12; ry: 12; }
+      .panel { fill: #FAFAFA; stroke: #B0BEC5; stroke-width: 2; rx: 16; ry: 16; }
+      .tag { font: 700 14px 'Microsoft YaHei', 'Noto Sans SC', Arial, sans-serif; fill: #0D47A1; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="2200" height="1500" fill="#FFFFFF"/>
+  <text x="1100" y="56" text-anchor="middle" class="title">航路优化算法流程图（Tower Optimize）</text>
+  <text x="1100" y="86" text-anchor="middle" class="subtitle">覆盖输入、输出、参数使用方式（Linear / A* / RRT）</text>
+
+  <!-- Left: Inputs -->
+  <text x="80" y="140" class="heading">输入</text>
+
+  <rect class="input" x="60" y="170" width="560" height="96"/>
+  <text x="86" y="200" class="box-title">Mission 航点数据</text>
+  <text x="86" y="224" class="box-text">来源：missionController.visualItems（至少 3 个航点）</text>
+  <text x="86" y="246" class="small">包含：坐标、是否可优化(simpleItem)、起降/独立点标记</text>
+
+  <rect class="input" x="60" y="300" width="560" height="96"/>
+  <text x="86" y="330" class="box-title">塔台/传感器数据</text>
+  <text x="86" y="354" class="box-text">来源：resources/towers.json</text>
+  <text x="86" y="376" class="small">tower 用于信号增益，sensor 用于禁飞区(no_fly_radius)</text>
+
+  <rect class="input" x="60" y="430" width="560" height="110"/>
+  <text x="86" y="460" class="box-title">算法配置参数</text>
+  <text x="86" y="484" class="box-text">来源：resources/TowerOptimize_config.json</text>
+  <text x="86" y="506" class="small">A*: cellSize/radius/iterations；RRT: step/samples/goalBias</text>
+  <text x="86" y="526" class="small">约束：separation、collision、signalModel</text>
+
+  <rect class="input" x="60" y="576" width="560" height="96"/>
+  <text x="86" y="606" class="box-title">UI 权重（实时调参）</text>
+  <text x="86" y="630" class="box-text">distanceWeight / signalWeight（PlanView 滑块）</text>
+  <text x="86" y="652" class="small">用于缩放 A* / RRT 的偏离代价与信号收益</text>
+
+  <!-- Center flow -->
+  <ellipse cx="1070" cy="150" rx="190" ry="42" fill="#ECEFF1" stroke="#546E7A" stroke-width="2"/>
+  <text x="1070" y="157" text-anchor="middle" class="box-title">开始</text>
+
+  <rect class="process" x="760" y="230" width="620" height="94"/>
+  <text x="790" y="262" class="box-title">加载输入并校验</text>
+  <text x="790" y="286" class="box-text">loadDefaultTowers() / loadDefaultConfig() / TowerOpt.loadTowers()</text>
+  <text x="790" y="308" class="small">若数据不足（无塔台、航点过少）则直接退出优化</text>
+
+  <polygon class="decision" points="1070,356 1280,438 1070,520 860,438"/>
+  <text x="1070" y="432" text-anchor="middle" class="box-title">选择优化算法</text>
+  <text x="1070" y="456" text-anchor="middle" class="box-text">Linear / A* / RRT</text>
+
+  <rect class="algo" x="430" y="586" width="470" height="132"/>
+  <text x="456" y="618" class="box-title">Linear 分支</text>
+  <text x="456" y="642" class="box-text">按 ratio 向“最近塔台”线性插值</text>
+  <text x="456" y="664" class="box-text">new = current + ratio * (nearestTower - current)</text>
+  <text x="456" y="686" class="small">特点：快、稳定、位移小；不做复杂搜索</text>
+
+  <rect class="process" x="980" y="570" width="520" height="86"/>
+  <text x="1010" y="602" class="box-title">A* / RRT 公共预处理</text>
+  <text x="1010" y="626" class="box-text">逐航点循环 + 过滤不可优化点 + 禁飞区碰撞预移出</text>
+
+  <polygon class="decision" points="1240,698 1430,776 1240,854 1050,776"/>
+  <text x="1240" y="770" text-anchor="middle" class="box-title">具体搜索器</text>
+  <text x="1240" y="794" text-anchor="middle" class="box-text">A* 还是 RRT</text>
+
+  <rect class="algo" x="860" y="906" width="380" height="160"/>
+  <text x="886" y="938" class="box-title">A* 搜索</text>
+  <text x="886" y="962" class="box-text">候选邻居（网格） + 代价函数最小化</text>
+  <text x="886" y="986" class="small">f = g + wDev*dev + h - wSig*signal + collisionPenalty</text>
+  <text x="886" y="1008" class="small">硬约束：minSeparation + 距离比例 [0.4, 2.0]</text>
+  <text x="886" y="1030" class="small">可早停：信号提升且偏移可接受</text>
+
+  <rect class="algo" x="1280" y="906" width="380" height="160"/>
+  <text x="1306" y="938" class="box-title">RRT 搜索</text>
+  <text x="1306" y="962" class="box-text">随机采样 + nearest 扩展 + goal bias</text>
+  <text x="1306" y="986" class="small">以综合代价 f 选择最优节点（非仅最短距离）</text>
+  <text x="1306" y="1008" class="small">同样执行碰撞检测与间距/比例约束</text>
+  <text x="1306" y="1030" class="small">适合复杂绕行场景</text>
+
+  <rect class="process" x="980" y="1116" width="520" height="116"/>
+  <text x="1010" y="1148" class="box-title">结果校验 + 后处理</text>
+  <text x="1010" y="1172" class="box-text">不满足约束则回退原点；可做近点合并（如 &lt;80m）</text>
+  <text x="1010" y="1194" class="box-text">段碰撞修复：必要时插入绕行点；标记 planMasterController.dirty</text>
+  <text x="1010" y="1216" class="small">可输出 A* debug tree / 优化日志</text>
+
+  <rect class="output" x="860" y="1272" width="640" height="160"/>
+  <text x="890" y="1304" class="box-title">输出</text>
+  <text x="890" y="1328" class="box-text">1) 优化后的航点坐标序列（可能新增/删减点）</text>
+  <text x="890" y="1350" class="box-text">2) 满足安全约束的可执行航路（禁飞区/地形净空）</text>
+  <text x="890" y="1372" class="box-text">3) 调参与诊断信息（信号提升、位移、回退原因、debug树）</text>
+  <text x="890" y="1394" class="small">4) 任务状态已置脏，等待用户保存/上传</text>
+
+  <!-- Right: Parameter usage -->
+  <rect class="panel" x="1580" y="130" width="570" height="1300"/>
+  <text x="1610" y="170" class="heading">参数怎么用</text>
+  <text x="1610" y="194" class="small">（建议先用默认值，再按结果微调）</text>
+
+  <rect class="param" x="1606" y="220" width="518" height="124"/>
+  <text x="1630" y="250" class="box-title">Linear</text>
+  <text x="1630" y="274" class="box-text">ratio（0~1）：每次向最近塔台靠近的比例</text>
+  <text x="1630" y="296" class="small">小：保守；大：更激进（可能改变队形）</text>
+  <text x="1630" y="318" class="small">配置项：linear.ratio</text>
+
+  <rect class="param" x="1606" y="364" width="518" height="180"/>
+  <text x="1630" y="394" class="box-title">A* 核心参数</text>
+  <text x="1630" y="418" class="box-text">cellSizeMeters：搜索网格精度（小=细致但慢）</text>
+  <text x="1630" y="440" class="box-text">radiusCells：搜索范围（大=更容易找到更优点）</text>
+  <text x="1630" y="462" class="box-text">maxIterations：搜索上限（大=更充分）</text>
+  <text x="1630" y="484" class="box-text">weightDeviation / weightSignal：偏离 vs 信号权衡</text>
+  <text x="1630" y="506" class="small">配置项：astar.*</text>
+
+  <rect class="param" x="1606" y="564" width="518" height="156"/>
+  <text x="1630" y="594" class="box-title">RRT 核心参数</text>
+  <text x="1630" y="618" class="box-text">searchRadiusMeters：采样半径</text>
+  <text x="1630" y="640" class="box-text">stepMeters：每次扩展步长</text>
+  <text x="1630" y="662" class="box-text">maxSamples：采样次数上限</text>
+  <text x="1630" y="684" class="box-text">goalBias：朝目标采样概率（更大=更直接）</text>
+  <text x="1630" y="706" class="small">配置项：rrt.*</text>
+
+  <rect class="param" x="1606" y="740" width="518" height="172"/>
+  <text x="1630" y="770" class="box-title">安全约束参数（强烈建议保守）</text>
+  <text x="1630" y="794" class="box-text">separation.minMeters：最小点间距硬约束</text>
+  <text x="1630" y="816" class="box-text">separation.safeMeters：后处理安全间距</text>
+  <text x="1630" y="838" class="box-text">collision.weatherBufferMeters：禁飞区外缓冲</text>
+  <text x="1630" y="860" class="box-text">minAltitudeAGL / terrainClearance：地形净空</text>
+  <text x="1630" y="882" class="small">配置项：astar.separation.*, collision.*</text>
+
+  <rect class="param" x="1606" y="932" width="518" height="154"/>
+  <text x="1630" y="962" class="box-title">信号模型参数</text>
+  <text x="1630" y="986" class="box-text">attenuationExponent：衰减快慢（大=衰减更快）</text>
+  <text x="1630" y="1008" class="box-text">baseDistanceMeters：归一化基准距离</text>
+  <text x="1630" y="1030" class="box-text">signalRadiusMeters：有效信号计算半径</text>
+  <text x="1630" y="1052" class="small">配置项：astar.signalModel.*, rrt.signalModel.*</text>
+
+  <rect class="param" x="1606" y="1106" width="518" height="176"/>
+  <text x="1630" y="1136" class="box-title">UI 滑块如何影响搜索</text>
+  <text x="1630" y="1160" class="box-text">distanceWeight ↑：更贴近原路线，位移更小</text>
+  <text x="1630" y="1182" class="box-text">signalWeight ↑：更追求信号收益，位移可能增大</text>
+  <text x="1630" y="1204" class="small">A* 内部近似：wDev_eff = weightDeviation * (0.1 + 0.9*distanceWeight)</text>
+  <text x="1630" y="1226" class="small">wSig_eff = weightSignal * signalWeight</text>
+  <text x="1630" y="1248" class="small">建议：先 0.5/0.5，再按飞行结果微调</text>
+
+  <!-- Arrows -->
+  <path class="line" d="M1070,192 L1070,228"/>
+  <path class="line" d="M1070,324 L1070,350"/>
+
+  <path class="line" d="M860,438 L660,438 L660,580"/>
+  <text x="708" y="426" class="tag">Linear</text>
+
+  <path class="line" d="M1280,438 L1240,438 L1240,566"/>
+  <text x="1262" y="426" class="tag">A* / RRT</text>
+
+  <path class="line" d="M1240,656 L1240,692"/>
+  <path class="line" d="M1122,776 L1050,776 L1050,900 L1240,900 L1240,960"/>
+  <text x="1060" y="768" class="tag">A*</text>
+
+  <path class="line" d="M1358,776 L1460,776 L1460,900"/>
+  <text x="1392" y="768" class="tag">RRT</text>
+
+  <path class="line" d="M665,718 L665,1028 L980,1028 L980,1170"/>
+  <path class="line" d="M1050,1066 L1050,1112"/>
+  <path class="line" d="M1460,1066 L1460,1174"/>
+  <path class="line" d="M1240,1232 L1240,1268"/>
+
+  <!-- Input arrows to load box -->
+  <path class="line" d="M620,218 L760,254"/>
+  <path class="line" d="M620,348 L760,270"/>
+  <path class="line" d="M620,486 L760,286"/>
+  <path class="line" d="M620,624 L760,302"/>
+</svg>

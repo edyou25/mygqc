@@ -1,0 +1,8 @@
+{
+  "greenlands": 122,
+  "waters": 60,
+  "buildings": 4235,
+  "buildings_with_height": 840,
+  "roads": 3044,
+  "out_dir": "/home/hw/qgroundcontrol/docs/osm_extract_height"
+}

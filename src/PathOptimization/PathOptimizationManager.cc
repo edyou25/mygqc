@@ -9,6 +9,9 @@
 
 #include "PathOptimizationManager.h"
 #include <QtGlobal>
+#include <QDir>
+#include <QFile>
+
 PathOptimizationManager* PathOptimizationManager::_instance = nullptr;
 
 PathOptimizationManager::PathOptimizationManager(QObject* parent)
@@ -32,7 +35,36 @@ bool PathOptimizationManager::loadDefaultTowers()
 
 bool PathOptimizationManager::loadDefaultConfig()
 {
-    return _towerOptimizer.loadConfigFromJson(":/resources/TowerOptimize_config.json");
+    const bool configLoaded = _towerOptimizer.loadConfigFromJson(":/resources/TowerOptimize_config.json");
+    const bool signalLoaded = loadDefaultSignalGrid();
+
+    if (!signalLoaded) {
+        qWarning() << "[PathOptimizationManager] Signal grid CSV not loaded, fallback to tower-only signal model";
+    }
+
+    return configLoaded;
+}
+
+bool PathOptimizationManager::loadDefaultSignalGrid()
+{
+    // Minimal integration: try known dev path first, then repo-relative candidates.
+    const QStringList candidates = {
+        QStringLiteral("/home/hw/qgroundcontrol/docs/tower/interpolated_grid_fullcube.csv"),
+        QDir::current().absoluteFilePath(QStringLiteral("docs/tower/interpolated_grid_fullcube.csv")),
+        QDir::current().absoluteFilePath(QStringLiteral("../docs/tower/interpolated_grid_fullcube.csv"))
+    };
+
+    for (const QString& path : candidates) {
+        if (!QFile::exists(path)) {
+            continue;
+        }
+        if (_towerOptimizer.loadSignalGridFromCsv(path)) {
+            qInfo() << "[PathOptimizationManager] Signal grid loaded from:" << path;
+            return true;
+        }
+    }
+
+    return false;
 }
 
     
@@ -65,4 +97,54 @@ void PathOptimizationManager::setSignalWeight(double w)
     emit signalWeightChanged();
 
     // 同上：必要时触发重算
+}
+
+void PathOptimizationManager::setWeatherWeight(double w)
+{
+    if (qFuzzyCompare(_weatherWeight, w)) {
+        return;
+    }
+
+    _weatherWeight = w;
+    emit weatherWeightChanged();
+}
+
+void PathOptimizationManager::setGreenlandWeight(double w)
+{
+    if (qFuzzyCompare(_greenlandWeight, w)) {
+        return;
+    }
+
+    _greenlandWeight = w;
+    emit greenlandWeightChanged();
+}
+
+void PathOptimizationManager::setBuildingWeight(double w)
+{
+    if (qFuzzyCompare(_buildingWeight, w)) {
+        return;
+    }
+
+    _buildingWeight = w;
+    emit buildingWeightChanged();
+}
+
+void PathOptimizationManager::setWaterWeight(double w)
+{
+    if (qFuzzyCompare(_waterWeight, w)) {
+        return;
+    }
+
+    _waterWeight = w;
+    emit waterWeightChanged();
+}
+
+void PathOptimizationManager::setRoadWeight(double w)
+{
+    if (qFuzzyCompare(_roadWeight, w)) {
+        return;
+    }
+
+    _roadWeight = w;
+    emit roadWeightChanged();
 }
