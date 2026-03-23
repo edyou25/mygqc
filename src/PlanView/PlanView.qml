@@ -697,6 +697,10 @@ Item {
         repeat: false
     }
     property bool planControlColapsed: false
+    property var originalPathForDisplay: []
+    property var signalPathForDisplay: []
+    property var lengthPathForDisplay: []
+    property var smoothPathForDisplay: []
     readonly property int   _decimalPlaces:             8
     readonly property real  _margin:                    ScreenTools.defaultFontPixelHeight * 0.5
     readonly property real  _toolsMargin:               ScreenTools.defaultFontPixelWidth * 0.75
@@ -949,6 +953,19 @@ Item {
     function insertLandItemAfterCurrent() {
         var nextIndex = _missionController.currentPlanViewVIIndex + 1
         _missionController.insertLandItem(mapCenter(), nextIndex, true /* makeCurrentItem */)
+    }
+
+    function _refreshPathComparisonPanel() {
+        if (!comparisonPanelLoader || !comparisonPanelLoader.item) {
+            return
+        }
+
+        comparisonPanelLoader.item.missionController = _missionController
+        comparisonPanelLoader.item.originalPathWaypoints = originalPathForDisplay || []
+        comparisonPanelLoader.item.signalPathWaypoints = signalPathForDisplay || []
+        comparisonPanelLoader.item.lengthPathWaypoints = lengthPathForDisplay || []
+        comparisonPanelLoader.item.smoothPathWaypoints = smoothPathForDisplay || []
+        comparisonPanelLoader.item.refresh()
     }
 
     // Load data once when PlanView root completes
@@ -1272,6 +1289,33 @@ Item {
                 lineColor:          "#156DFF"
                 collisionLineColor: "#FF3B30"
                 specialLineColor:   "#19C15F"
+            }
+
+            MapPolyline {
+                id:                 originalPathPolyline
+                line.width:         4
+                line.color:         '#4569df'
+                z:                  QGroundControl.zOrderMapItems + 29
+                opacity:            _editingLayer == _layerMission && originalPathForDisplay.length > 0 ? 0.75 : 0
+                path:               originalPathForDisplay
+            }
+
+            MapPolyline {
+                id:                 lengthPathPolyline
+                line.width:         3
+                line.color:         '#f2a900'
+                z:                  QGroundControl.zOrderMapItems + 28
+                opacity:            _editingLayer == _layerMission && lengthPathForDisplay.length > 0 ? 0.7 : 0
+                path:               lengthPathForDisplay
+            }
+
+            MapPolyline {
+                id:                 smoothPathPolyline
+                line.width:         3
+                line.color:         '#2fb66c'
+                z:                  QGroundControl.zOrderMapItems + 28
+                opacity:            _editingLayer == _layerMission && smoothPathForDisplay.length > 0 ? 0.7 : 0
+                path:               smoothPathForDisplay
             }
 
             // Direction arrows in waypoint lines
@@ -4322,6 +4366,25 @@ Item {
             anchors.right:      parent.right
             anchors.rightMargin: _toolsMargin
         }
+        Loader {
+            id:                 comparisonPanelLoader
+            source:             "PathComparisonPanel.qml"
+            anchors.right:      rightPanel.left
+            anchors.rightMargin: _toolsMargin
+            anchors.top:        parent.top
+            anchors.bottom:     parent.bottom
+            width:              Math.min(ScreenTools.defaultFontPixelWidth * 46, parent.width * 0.38)
+            visible:            _editingLayer == _layerMission && item !== null
+            active:             true
+
+            onLoaded: {
+                if (item) {
+                    item.missionController = _missionController
+                    Qt.callLater(_refreshPathComparisonPanel)
+                }
+            }
+        }
+
         //-------------------------------------------------------
         // Right Panel Controls
         Item {
@@ -4562,8 +4625,23 @@ Item {
                 enabled: toolStrip._isMissionLayer && _missionController.visualItems.count > 2
                 onClicked: {
                     _syncPathOptimizationStateToCpp()
-                    TowerOpt.optimizeMissionAStar(_missionController, _planMasterController, 0.2)
+
+                    var multiResult = TowerOpt.generateMultiPathPlans(_missionController, _planMasterController, {})
+                    if (multiResult) {
+                        originalPathForDisplay = multiResult.original || []
+                        signalPathForDisplay = multiResult.signal || []
+                        lengthPathForDisplay = multiResult.length || []
+                        smoothPathForDisplay = multiResult.smooth || []
+                    } else {
+                        TowerOpt.optimizeMissionAStar(_missionController, _planMasterController, 0.2)
+                        originalPathForDisplay = TowerOpt.getOriginalPathWaypoints() || []
+                        signalPathForDisplay = []
+                        lengthPathForDisplay = []
+                        smoothPathForDisplay = []
+                    }
+
                     _scheduleTerrainRecoveryPasses(3)
+                    Qt.callLater(_refreshPathComparisonPanel)
                     dropPanel.hide()
                 }
             }
@@ -4574,6 +4652,11 @@ Item {
                 onClicked: {
                     _syncPathOptimizationStateToCpp()
                     TowerOpt.optimizeMissionRRT(_missionController, _planMasterController, 0.2)
+                    originalPathForDisplay = TowerOpt.getOriginalPathWaypoints() || []
+                    signalPathForDisplay = []
+                    lengthPathForDisplay = []
+                    smoothPathForDisplay = []
+                    Qt.callLater(_refreshPathComparisonPanel)
                     dropPanel.hide()
                 }
             }
@@ -4584,6 +4667,11 @@ Item {
                 onClicked: {
                     _syncPathOptimizationStateToCpp()
                     TowerOpt.optimizeMissionAStarNew(_missionController, _planMasterController, 0.2)
+                    originalPathForDisplay = TowerOpt.getOriginalPathWaypoints() || []
+                    signalPathForDisplay = []
+                    lengthPathForDisplay = []
+                    smoothPathForDisplay = []
+                    Qt.callLater(_refreshPathComparisonPanel)
                     dropPanel.hide()
                 }
             }*/

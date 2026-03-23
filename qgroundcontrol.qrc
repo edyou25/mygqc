@@ -76,6 +76,7 @@
         <file alias="PlanToolBar.qml">src/PlanView/PlanToolBar.qml</file>
         <file alias="PlanToolBarIndicators.qml">src/PlanView/PlanToolBarIndicators.qml</file>
         <file alias="PlanView.qml">src/PlanView/PlanView.qml</file>
+        <file alias="PathComparisonPanel.qml">src/PlanView/PathComparisonPanel.qml</file>
         <file alias="TowerOptimize.js">src/PlanView/TowerOptimize.js</file>
         <file alias="AStarDebugLayer.qml">src/PlanView/AStarDebugLayer.qml</file>
         <file alias="PreFlightCheckList.qml">src/FlightDisplay/PreFlightCheckList.qml</file>
