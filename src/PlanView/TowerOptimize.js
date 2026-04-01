@@ -52,6 +52,12 @@ function warningRadius(sensor) {
     return Math.max(120, (sensor.radius || 0) + 200)
 }
 
+function _weatherNoFlyRadius(sensor, weatherBufferMeters) {
+    if (!sensor) return 0
+    var buffer = isFinite(weatherBufferMeters) ? weatherBufferMeters : getConfig('collision', 'weatherBufferMeters', 5.0)
+    return Math.max(0, (sensor.radius || 0) + buffer)
+}
+
 // 初始化C++后端
 function initCppBackend() {
     console.log('[TowerOptimize] Attempting to initialize C++ backend...')
@@ -177,6 +183,40 @@ function _extractMissionPath(missionController) {
     return path
 }
 
+function _extractMissionPathSnapshot(missionController) {
+    var snapshot = {
+        path: [],
+        anchorIndices: []
+    }
+    if (!missionController || !missionController.visualItems) return snapshot
+
+    var visualItems = missionController.visualItems
+    var pathIndex = 0
+    for (var i = 1; i < visualItems.count; i++) {
+        var item = visualItems.get(i)
+        if (!item || !item.coordinate || !item.coordinate.isValid) continue
+
+        snapshot.path.push(_cloneCoordinate(item.coordinate))
+        if (item.specifiesCoordinate
+                && !item.isStandaloneCoordinate
+                && !item._optimizerGeneratedWaypoint) {
+            snapshot.anchorIndices.push(pathIndex)
+        }
+        pathIndex++
+    }
+
+    if (snapshot.path.length > 0) {
+        if (snapshot.anchorIndices.length === 0 || snapshot.anchorIndices[0] !== 0) {
+            snapshot.anchorIndices.unshift(0)
+        }
+        if (snapshot.anchorIndices[snapshot.anchorIndices.length - 1] !== snapshot.path.length - 1) {
+            snapshot.anchorIndices.push(snapshot.path.length - 1)
+        }
+    }
+
+    return snapshot
+}
+
 function _applyMissionPath(missionController, path) {
     if (!missionController || !missionController.visualItems) return
     if (!path || path.length === 0) return
@@ -194,12 +234,379 @@ function _applyMissionPath(missionController, path) {
     }
 }
 
-function _straightenPath(path, strength) {
+function _applyMissionPathExact(missionController, path) {
+    if (!missionController || !missionController.visualItems) return false
+    if (!path || path.length === 0) return false
+
+    var entries = _collectMissionPathWaypoints(missionController)
+    if (!entries || entries.length === 0) return false
+
+    while (entries.length > path.length) {
+        var removeEntryIndex = Math.max(1, entries.length - 2)
+        if (removeEntryIndex < 0 || removeEntryIndex >= entries.length) {
+            break
+        }
+
+        missionController.removeVisualItem(entries[removeEntryIndex].visualIndex)
+        entries = _collectMissionPathWaypoints(missionController)
+    }
+
+    while (entries.length < path.length) {
+        var insertBeforeVisualIndex = (entries.length > 0)
+            ? entries[entries.length - 1].visualIndex
+            : missionController.visualItems.count
+        var placeholderCoord = _cloneCoordinate(path[Math.max(0, Math.min(entries.length, path.length - 1))])
+        var insertedItem = missionController.insertSimpleMissionItem(placeholderCoord, insertBeforeVisualIndex, false)
+        if (insertedItem) {
+            _markGeneratedOptimizationWaypoint(insertedItem, 'path-restore')
+            if (insertedItem.dirty !== undefined) {
+                insertedItem.dirty = true
+            }
+        }
+        entries = _collectMissionPathWaypoints(missionController)
+    }
+
+    for (var i = 0; i < entries.length && i < path.length; i++) {
+        var entry = entries[i]
+        if (!entry || !entry.item) continue
+        entry.item.coordinate = _cloneCoordinate(path[i])
+        if (entry.item.dirty !== undefined) entry.item.dirty = true
+    }
+
+    return entries.length === path.length
+}
+
+function prepareMissionPathForExport(missionController, path) {
+    return _applyMissionPathExact(missionController, path)
+}
+
+function exportPathVariants(missionController, planMasterController, exportSpecs) {
+    if (!missionController || !planMasterController || !exportSpecs || !exportSpecs.length) {
+        return []
+    }
+
+    var restorePath = _extractMissionPath(missionController)
+    var exported = []
+
+    try {
+        for (var i = 0; i < exportSpecs.length; i++) {
+            var spec = exportSpecs[i]
+            if (!spec || !spec.filePath || !spec.path || spec.path.length < 2) {
+                continue
+            }
+
+            if (!_applyMissionPathExact(missionController, spec.path)) {
+                console.warn('[TowerOptimize] Failed to prepare path variant for export:', spec.label || spec.filePath)
+                continue
+            }
+
+            applyTerrainClearancePasses(missionController, planMasterController, 3)
+
+            if (planMasterController.exportCurrentPlanToFile(spec.filePath)) {
+                exported.push({
+                    label: spec.label || '',
+                    filePath: spec.filePath,
+                    pointCount: _extractMissionPath(missionController).length
+                })
+            }
+        }
+    } finally {
+        _applyMissionPathExact(missionController, restorePath)
+        if (planMasterController) {
+            planMasterController.dirty = true
+        }
+    }
+
+    return exported
+}
+
+function _buildLockedAnchorIndexMap(path, anchorPath) {
+    var locked = {}
+    if (!path || path.length === 0) {
+        return locked
+    }
+
+    locked[0] = true
+    locked[path.length - 1] = true
+
+    if (!anchorPath || anchorPath.length === 0) {
+        return locked
+    }
+
+    var searchStart = 0
+    for (var ai = 0; ai < anchorPath.length; ai++) {
+        var anchor = anchorPath[ai]
+        if (!anchor) continue
+
+        for (var pi = searchStart; pi < path.length; pi++) {
+            var point = path[pi]
+            if (!point) continue
+            var dist = distanceMeters(anchor.latitude, anchor.longitude, point.latitude, point.longitude)
+            if (dist <= 1.5) {
+                locked[pi] = true
+                searchStart = pi + 1
+                break
+            }
+        }
+    }
+
+    return locked
+}
+
+function _findOrderedAnchorIndices(path, anchorPath, toleranceMeters) {
+    var indices = []
+    if (!path || path.length === 0) {
+        return indices
+    }
+
+    var tolerance = (typeof toleranceMeters === 'number' && isFinite(toleranceMeters))
+        ? toleranceMeters
+        : 1.5
+    var searchStart = 0
+
+    indices.push(0)
+
+    if (anchorPath && anchorPath.length > 0) {
+        for (var ai = 0; ai < anchorPath.length; ai++) {
+            var anchor = anchorPath[ai]
+            if (!anchor) continue
+
+            var bestIndex = -1
+            var bestDistance = tolerance
+            for (var pi = searchStart; pi < path.length; pi++) {
+                var point = path[pi]
+                if (!point) continue
+
+                var dist = distanceMeters(anchor.latitude, anchor.longitude, point.latitude, point.longitude)
+                if (dist <= bestDistance) {
+                    bestDistance = dist
+                    bestIndex = pi
+                    if (dist <= 0.05) {
+                        break
+                    }
+                }
+            }
+
+            if (bestIndex >= 0) {
+                if (indices[indices.length - 1] !== bestIndex) {
+                    indices.push(bestIndex)
+                }
+                searchStart = bestIndex + 1
+            }
+        }
+    }
+
+    if (indices[indices.length - 1] !== path.length - 1) {
+        indices.push(path.length - 1)
+    }
+
+    var normalized = []
+    for (var i = 0; i < indices.length; i++) {
+        var idx = indices[i]
+        if (idx < 0 || idx >= path.length) continue
+        if (normalized.length > 0 && normalized[normalized.length - 1] === idx) continue
+        normalized.push(idx)
+    }
+
+    return normalized
+}
+
+function _postProcessPathByAnchors(path, anchorPath, segmentProcessor) {
+    if (!path || path.length < 3 || typeof segmentProcessor !== 'function') {
+        return _clonePath(path)
+    }
+
+    var anchorIndices = _findOrderedAnchorIndices(path, anchorPath, 2.0)
+    if (!anchorIndices || anchorIndices.length < 2) {
+        return _clonePath(path)
+    }
+
+    var result = []
+    for (var si = 0; si < anchorIndices.length - 1; si++) {
+        var startIdx = anchorIndices[si]
+        var endIdx = anchorIndices[si + 1]
+        if (endIdx <= startIdx) {
+            continue
+        }
+
+        var segment = []
+        for (var pi = startIdx; pi <= endIdx; pi++) {
+            segment.push(_cloneCoordinate(path[pi]))
+        }
+
+        var processedSegment = segmentProcessor(segment)
+        if (!processedSegment || processedSegment.length !== segment.length) {
+            processedSegment = segment
+        }
+
+        for (var ri = 0; ri < processedSegment.length; ri++) {
+            if (result.length > 0 && ri === 0) {
+                continue
+            }
+            result.push(_cloneCoordinate(processedSegment[ri]))
+        }
+    }
+
+    return result.length > 0 ? result : _clonePath(path)
+}
+
+function _postProcessPathByAnchorIndices(path, anchorIndices, segmentProcessor) {
+    if (!path || path.length < 3 || typeof segmentProcessor !== 'function') {
+        return _clonePath(path)
+    }
+
+    var normalized = []
+    if (anchorIndices && anchorIndices.length > 0) {
+        for (var i = 0; i < anchorIndices.length; i++) {
+            var idx = Math.round(anchorIndices[i])
+            if (idx < 0 || idx >= path.length) continue
+            if (normalized.length > 0 && idx <= normalized[normalized.length - 1]) continue
+            normalized.push(idx)
+        }
+    }
+
+    if (normalized.length === 0 || normalized[0] !== 0) {
+        normalized.unshift(0)
+    }
+    if (normalized[normalized.length - 1] !== path.length - 1) {
+        normalized.push(path.length - 1)
+    }
+
+    if (normalized.length < 2) {
+        return _clonePath(path)
+    }
+
+    var result = []
+    for (var si = 0; si < normalized.length - 1; si++) {
+        var startIdx = normalized[si]
+        var endIdx = normalized[si + 1]
+        if (endIdx <= startIdx) {
+            continue
+        }
+
+        var segment = []
+        for (var pi = startIdx; pi <= endIdx; pi++) {
+            segment.push(_cloneCoordinate(path[pi]))
+        }
+
+        var processedSegment = segmentProcessor(segment, si, normalized.length - 1)
+        if (!processedSegment || processedSegment.length !== segment.length) {
+            processedSegment = segment
+        }
+
+        for (var ri = 0; ri < processedSegment.length; ri++) {
+            if (result.length > 0 && ri === 0) {
+                continue
+            }
+            result.push(_cloneCoordinate(processedSegment[ri]))
+        }
+    }
+
+    return result.length > 0 ? result : _clonePath(path)
+}
+
+function _clampCoordinateToReference(referenceCoord, candidateCoord, maxShiftMeters) {
+    if (!referenceCoord || !referenceCoord.isValid || !candidateCoord || !candidateCoord.isValid) {
+        return _cloneCoordinate(referenceCoord || candidateCoord)
+    }
+
+    if (!isFinite(maxShiftMeters) || maxShiftMeters <= 0) {
+        return _cloneCoordinate(candidateCoord)
+    }
+
+    var shiftDistance = distanceMeters(
+        referenceCoord.latitude, referenceCoord.longitude,
+        candidateCoord.latitude, candidateCoord.longitude
+    )
+    if (!isFinite(shiftDistance) || shiftDistance <= maxShiftMeters) {
+        return _cloneCoordinate(candidateCoord)
+    }
+
+    var bearing = referenceCoord.azimuthTo(candidateCoord)
+    if (!isFinite(bearing)) {
+        return _cloneCoordinate(referenceCoord)
+    }
+
+    var clamped = referenceCoord.atDistanceAndAzimuth(maxShiftMeters, bearing)
+    clamped.altitude = (!isNaN(candidateCoord.altitude) && candidateCoord.altitude !== undefined)
+        ? candidateCoord.altitude
+        : referenceCoord.altitude
+    return clamped
+}
+
+function _finalizeProcessedSegment(referenceSegment, processedSegment, maxShiftMeters) {
+    if (!referenceSegment || referenceSegment.length < 3) {
+        return _clonePath(referenceSegment)
+    }
+
+    var weatherBufferMeters = getConfig('collision', 'weatherBufferMeters', 5.0)
+    var result = [_cloneCoordinate(referenceSegment[0])]
+
+    for (var i = 1; i < referenceSegment.length - 1; i++) {
+        var referenceCoord = referenceSegment[i]
+        var candidateCoord = (processedSegment && processedSegment[i] && processedSegment[i].isValid)
+            ? _cloneCoordinate(processedSegment[i])
+            : _cloneCoordinate(referenceCoord)
+
+        candidateCoord = _clampCoordinateToReference(referenceCoord, candidateCoord, maxShiftMeters)
+
+        var prevCoord = result[result.length - 1]
+        var nextReference = referenceSegment[i + 1]
+        var candidateInvalid =
+            !candidateCoord
+            || !candidateCoord.isValid
+            || _hasWeatherCollisionAt(candidateCoord)
+            || _hasBuildingCollisionAt(candidateCoord)
+            || findSegmentCollision(prevCoord, candidateCoord, weatherBufferMeters)
+            || !_isBuildingSegmentClear(prevCoord, candidateCoord)
+            || findSegmentCollision(candidateCoord, nextReference, weatherBufferMeters)
+            || !_isBuildingSegmentClear(candidateCoord, nextReference)
+
+        if (candidateInvalid) {
+            candidateCoord = _cloneCoordinate(referenceCoord)
+        }
+
+        result.push(candidateCoord)
+    }
+
+    result.push(_cloneCoordinate(referenceSegment[referenceSegment.length - 1]))
+
+    for (var seg = 0; seg < result.length - 1; seg++) {
+        if (findSegmentCollision(result[seg], result[seg + 1], weatherBufferMeters)
+                || !_isBuildingSegmentClear(result[seg], result[seg + 1])) {
+            return _clonePath(referenceSegment)
+        }
+    }
+
+    return result
+}
+
+function _straightenSegmentNearReference(referenceSegment, strength, maxShiftMeters) {
+    return _finalizeProcessedSegment(
+        referenceSegment,
+        _straightenPath(referenceSegment, strength, null),
+        maxShiftMeters
+    )
+}
+
+function _smoothSegmentNearReference(referenceSegment, iterations, alpha, maxShiftMeters) {
+    return _finalizeProcessedSegment(
+        referenceSegment,
+        _smoothPath(referenceSegment, iterations, alpha, null),
+        maxShiftMeters
+    )
+}
+
+function _straightenPath(path, strength, lockedIndices) {
     if (!path || path.length < 3) return _clonePath(path)
 
     var result = []
     result.push(_cloneCoordinate(path[0]))
     for (var i = 1; i < path.length - 1; i++) {
+        if (lockedIndices && lockedIndices[i]) {
+            result.push(_cloneCoordinate(path[i]))
+            continue
+        }
         var prev = path[i - 1]
         var curr = path[i]
         var next = path[i + 1]
@@ -215,7 +622,7 @@ function _straightenPath(path, strength) {
     return result
 }
 
-function _smoothPath(path, iterations, alpha) {
+function _smoothPath(path, iterations, alpha, lockedIndices) {
     if (!path || path.length < 3) return _clonePath(path)
 
     var result = _clonePath(path)
@@ -225,6 +632,10 @@ function _smoothPath(path, iterations, alpha) {
         var next = []
         next.push(_cloneCoordinate(result[0]))
         for (var i = 1; i < result.length - 1; i++) {
+            if (lockedIndices && lockedIndices[i]) {
+                next.push(_cloneCoordinate(result[i]))
+                continue
+            }
             var prev = result[i - 1]
             var curr = result[i]
             var nxt = result[i + 1]
@@ -377,6 +788,7 @@ function _tryInsertCppOptimizedSegmentDetour(missionController, item1, item2, in
             var insertedItem = missionController.insertSimpleMissionItem(midCoord, insertIndex, false)
             _applyInsertedWaypointAltitude(insertedItem, isFinite(rawAltitude) ? rawAltitude : fallbackAltitude)
             if (insertedItem) {
+                _markGeneratedOptimizationWaypoint(insertedItem, 'cpp-detour')
                 insertedItem._collisionMoved = true
                 insertedItem.dirty = true
             }
@@ -535,12 +947,13 @@ function _normalizeScoreWeights(weights) {
     var doNormalize = getConfig('score', 'normalizeWeights', true)
     if (!doNormalize) return weights
 
-    var sum = (weights.signal || 0) + (weights.obstacle || 0) + (weights.smooth || 0) + (weights.length || 0)
+    var sum = (weights.signal || 0) + (weights.obstacle || 0) + (weights.building || 0) + (weights.smooth || 0) + (weights.length || 0)
     if (sum <= 1e-9) return weights
 
     return {
         signal: (weights.signal || 0) / sum,
         obstacle: (weights.obstacle || 0) / sum,
+        building: (weights.building || 0) / sum,
         smooth: (weights.smooth || 0) / sum,
         length: (weights.length || 0) / sum
     }
@@ -548,10 +961,11 @@ function _normalizeScoreWeights(weights) {
 
 function _getScoreParams() {
     var weights = {
-        signal: getConfig('score', 'weights.signal', 0.4),
-        obstacle: getConfig('score', 'weights.obstacle', 0.3),
-        smooth: getConfig('score', 'weights.smooth', 0.2),
-        length: getConfig('score', 'weights.length', 0.1)
+        signal: getConfig('score', 'weights.signal', 0.9),
+        obstacle: getConfig('score', 'weights.obstacle', 0.05),
+        building: getConfig('score', 'weights.building', 0.1),
+        smooth: getConfig('score', 'weights.smooth', 0.03),
+        length: getConfig('score', 'weights.length', 0.02)
     }
     weights = _normalizeScoreWeights(weights)
 
@@ -560,12 +974,34 @@ function _getScoreParams() {
         scales: {
             signal: getConfig('score', 'scales.signal', 1.0),
             obstacle: getConfig('score', 'scales.obstacle', 1.0),
-            smooth: getConfig('score', 'scales.smooth', 1.0),
+            building: getConfig('score', 'scales.building', 1.0),
+            smooth: getConfig('score', 'scales.smooth', 0.05),
             length: getConfig('score', 'scales.length', 1.0)
         },
+        signalMinBlend: getConfig('score', 'signalMinBlend', 0.35),
+        obstacleMinBlend: getConfig('score', 'obstacleMinBlend', 0.4),
+        buildingMinBlend: getConfig('score', 'buildingMinBlend', 0.55),
+        obstacleRewardCapMeters: getConfig('score', 'obstacleRewardCapMeters', 25.0),
+        obstacleMinRefMeters: getConfig('score', 'obstacleMinRefMeters', 12.0),
+        buildingClearanceRefMeters: getConfig('score', 'buildingClearanceRefMeters', 20.0),
+        buildingNoDataClearanceMeters: getConfig('score', 'buildingNoDataClearanceMeters', 30.0),
+        buildingHardCollisionPenalty: getConfig('score', 'buildingHardCollisionPenalty', 4.0),
         lengthRefMeters: getConfig('score', 'lengthRefMeters', 10000.0),
         smoothMaxTurnDeg: getConfig('score', 'smoothMaxTurnDeg', 180.0)
     }
+}
+
+function _softCapScore(value, refValue) {
+    if (!isFinite(value) || value <= 0) {
+        return 0
+    }
+
+    var ref = Number(refValue)
+    if (!isFinite(ref) || ref <= 0) {
+        return value
+    }
+
+    return ref * (1 - Math.exp(-value / ref))
 }
 
 function calculatePathMetrics(waypoints) {
@@ -574,20 +1010,37 @@ function calculatePathMetrics(waypoints) {
     var metrics = {
         obstacleMinDistance: Infinity,
         obstacleAvgDistance: 0,
+        buildingMinClearance: Infinity,
+        buildingAvgClearance: 0,
+        buildingObstacleScore: 0,
+        buildingEncounterSamples: 0,
+        buildingCollisionSamples: 0,
         signalAvg: 0,
         signalMin: Infinity,
         signalMax: -Infinity,
         signalDistribution: [],
         pathLength: 0,
         pathSmoothness: 0,
-        overscore: 0
+        overscore: 0,
+        hardCollisionSamples: 0
     }
 
     var totalObstacleDistance = 0
+    var totalBuildingClearance = 0
+    var buildingSampleCount = 0
     var totalSignal = 0
-    var validPoints = 0
+    var sampledPointCount = 0
     var totalAngleChange = 0
     var angleChanges = 0
+    var metricSampleSpacingMeters = Math.max(5.0, getConfig('score', 'metricSampleSpacingMeters', 20.0))
+    var noObstacleDistanceMeters = Math.max(25.0, getConfig('score', 'obstacleNoDataDistanceMeters', 60.0))
+    var hardCollisionPenalty = Math.max(0.0, getConfig('score', 'hardCollisionPenalty', 6.0))
+    var hasBuildingHeightData = _hasAnyBuildingHeightData()
+    var buildingSafetyClearanceMeters = Math.max(
+        getConfig('collision', 'buildingClearance', 5.0),
+        getConfig('collision', 'minWaypointBuildingClearanceMeters', 8.0)
+    )
+    var buildingNoDataClearanceMeters = Math.max(10.0, getConfig('score', 'buildingNoDataClearanceMeters', 30.0))
 
     function metricDistanceMeters(lat1, lon1, lat2, lon2) {
         return distanceMeters(lat1, lon1, lat2, lon2)
@@ -622,12 +1075,18 @@ function calculatePathMetrics(waypoints) {
         for (var i = 0; i < weatherSensors.length; i++) {
             var sensor = weatherSensors[i]
             if (!sensor) continue
+            if (!isNoFlySensor(sensor) && !isWarningSensor(sensor)) continue
             var dist = metricDistanceMeters(lat, lon, sensor.lat, sensor.lon)
-            var sensorRadius = sensor.radius || 100
+            var sensorRadius = isWarningSensor(sensor) ? warningRadius(sensor) : (sensor.radius || 100)
             var actualDist = dist - sensorRadius
             if (actualDist < minDist) minDist = actualDist
         }
         return minDist
+    }
+
+    function toFiniteOrNaN(value) {
+        var num = Number(value)
+        return isFinite(num) ? num : NaN
     }
 
     function extractLatLon(wp) {
@@ -636,65 +1095,118 @@ function calculatePathMetrics(waypoints) {
             if (!wp.isValid) return null
             return {
                 lat: (typeof wp.latitude === 'function') ? wp.latitude() : wp.latitude,
-                lon: (typeof wp.longitude === 'function') ? wp.longitude() : wp.longitude
+                lon: (typeof wp.longitude === 'function') ? wp.longitude() : wp.longitude,
+                altitude: toFiniteOrNaN((typeof wp.altitude === 'function') ? wp.altitude() : wp.altitude)
             }
         }
         if (wp.coordinate && wp.coordinate.isValid !== undefined) {
             if (!wp.coordinate.isValid) return null
             return {
                 lat: (typeof wp.coordinate.latitude === 'function') ? wp.coordinate.latitude() : wp.coordinate.latitude,
-                lon: (typeof wp.coordinate.longitude === 'function') ? wp.coordinate.longitude() : wp.coordinate.longitude
+                lon: (typeof wp.coordinate.longitude === 'function') ? wp.coordinate.longitude() : wp.coordinate.longitude,
+                altitude: toFiniteOrNaN((typeof wp.coordinate.altitude === 'function') ? wp.coordinate.altitude() : wp.coordinate.altitude)
             }
         }
         if (typeof wp.latitude === 'number' && typeof wp.longitude === 'number') {
-            return { lat: wp.latitude, lon: wp.longitude }
+            return {
+                lat: wp.latitude,
+                lon: wp.longitude,
+                altitude: toFiniteOrNaN(wp.altitude)
+            }
         }
         return null
     }
 
-    for (var i = 0; i < waypoints.length; i++) {
-        var current = extractLatLon(waypoints[i])
-        if (!current) continue
-
-        var signal = metricSignalStrength(current.lat, current.lon)
+    function accumulateSample(lat, lon, altitude) {
+        var signal = metricSignalStrength(lat, lon)
         metrics.signalDistribution.push(signal)
         totalSignal += signal
         if (signal < metrics.signalMin) metrics.signalMin = signal
         if (signal > metrics.signalMax) metrics.signalMax = signal
 
-        var obstacleDistance = distanceToObstacle(current.lat, current.lon)
-        var effectiveDistance = obstacleDistance < 0 ? 0 : obstacleDistance
+        var obstacleDistance = distanceToObstacle(lat, lon)
+        var effectiveDistance = isFinite(obstacleDistance) ? Math.max(0, obstacleDistance) : noObstacleDistanceMeters
         if (effectiveDistance < metrics.obstacleMinDistance) metrics.obstacleMinDistance = effectiveDistance
         totalObstacleDistance += effectiveDistance
+        if (isFinite(obstacleDistance) && obstacleDistance < 0) {
+            metrics.hardCollisionSamples++
+        }
 
-        if (i > 0) {
-            var previous = extractLatLon(waypoints[i - 1])
-            if (previous) {
-                metrics.pathLength += metricDistanceMeters(previous.lat, previous.lon, current.lat, current.lon)
-
-                if (i > 1) {
-                    var previous2 = extractLatLon(waypoints[i - 2])
-                    if (previous2) {
-                        var angle1 = Math.atan2(current.lat - previous.lat, current.lon - previous.lon) * 180 / Math.PI
-                        var angle2 = Math.atan2(previous.lat - previous2.lat, previous.lon - previous2.lon) * 180 / Math.PI
-                        var angleDiff = Math.abs(angle1 - angle2)
-                        if (angleDiff > 180) angleDiff = 360 - angleDiff
-                        totalAngleChange += angleDiff
-                        angleChanges++
-                    }
+        if (hasBuildingHeightData) {
+            var sampleCoord = Pos.QtPositioning.coordinate(lat, lon, isFinite(altitude) ? altitude : 0)
+            var buildingHeightMeters = _buildingHeightAtCoord(sampleCoord)
+            if (buildingHeightMeters > 0) {
+                var buildingClearance = (isFinite(altitude) ? altitude : 0) - (buildingHeightMeters + buildingSafetyClearanceMeters)
+                metrics.buildingEncounterSamples++
+                if (buildingClearance < metrics.buildingMinClearance) metrics.buildingMinClearance = buildingClearance
+                totalBuildingClearance += Math.max(0, buildingClearance)
+                if (buildingClearance < 0) {
+                    metrics.buildingCollisionSamples++
                 }
+                buildingSampleCount++
             }
         }
 
-        validPoints++
+        sampledPointCount++
     }
 
-    if (validPoints > 0) {
-        metrics.obstacleAvgDistance = totalObstacleDistance / validPoints
-        metrics.signalAvg = totalSignal / validPoints
+    var extracted = []
+    for (var i = 0; i < waypoints.length; i++) {
+        var current = extractLatLon(waypoints[i])
+        if (!current) continue
+        extracted.push(current)
+    }
+
+    if (extracted.length < 2) {
+        return null
+    }
+
+    accumulateSample(extracted[0].lat, extracted[0].lon, extracted[0].altitude)
+
+    for (var pi = 1; pi < extracted.length; pi++) {
+        var previous = extracted[pi - 1]
+        var current = extracted[pi]
+        var segmentDistance = metricDistanceMeters(previous.lat, previous.lon, current.lat, current.lon)
+        metrics.pathLength += segmentDistance
+
+        var steps = Math.max(1, Math.ceil(segmentDistance / metricSampleSpacingMeters))
+        for (var si = 1; si <= steps; si++) {
+            var t = si / steps
+            var sampleLat = previous.lat + (current.lat - previous.lat) * t
+            var sampleLon = previous.lon + (current.lon - previous.lon) * t
+            var sampleAltitude = _interpolateFiniteValue(previous.altitude, current.altitude, t, 0)
+            accumulateSample(sampleLat, sampleLon, sampleAltitude)
+        }
+
+        if (pi > 1) {
+            var previous2 = extracted[pi - 2]
+            var angle1 = Math.atan2(current.lat - previous.lat, current.lon - previous.lon) * 180 / Math.PI
+            var angle2 = Math.atan2(previous.lat - previous2.lat, previous.lon - previous2.lon) * 180 / Math.PI
+            var angleDiff = Math.abs(angle1 - angle2)
+            if (angleDiff > 180) angleDiff = 360 - angleDiff
+            totalAngleChange += angleDiff
+            angleChanges++
+        }
+    }
+
+    if (sampledPointCount > 0) {
+        metrics.obstacleAvgDistance = totalObstacleDistance / sampledPointCount
+        metrics.signalAvg = totalSignal / sampledPointCount
         if (angleChanges > 0) {
             metrics.pathSmoothness = totalAngleChange / angleChanges
         }
+    }
+
+    if (hasBuildingHeightData) {
+        if (buildingSampleCount > 0) {
+            metrics.buildingAvgClearance = totalBuildingClearance / buildingSampleCount
+        } else {
+            metrics.buildingMinClearance = buildingNoDataClearanceMeters
+            metrics.buildingAvgClearance = buildingNoDataClearanceMeters
+        }
+    } else {
+        metrics.buildingMinClearance = 0
+        metrics.buildingAvgClearance = 0
     }
 
     if (metrics.obstacleMinDistance === Infinity || metrics.obstacleMinDistance < 0) metrics.obstacleMinDistance = 0
@@ -706,15 +1218,41 @@ function calculatePathMetrics(waypoints) {
     var weights = scoreParams.weights
     var scales = scoreParams.scales
 
+    var signalBlend = metrics.signalAvg * (1 - scoreParams.signalMinBlend) + metrics.signalMin * scoreParams.signalMinBlend
     var lengthScore = (metrics.pathLength > 0) ? (scoreParams.lengthRefMeters / metrics.pathLength) : 0
     var smoothScore = scoreParams.smoothMaxTurnDeg - metrics.pathSmoothness
+    var obstacleAvgScore = _softCapScore(metrics.obstacleAvgDistance, scoreParams.obstacleRewardCapMeters)
+    var obstacleMinScore = _softCapScore(metrics.obstacleMinDistance, scoreParams.obstacleMinRefMeters)
+    var obstacleScore = obstacleAvgScore * (1 - scoreParams.obstacleMinBlend) + obstacleMinScore * scoreParams.obstacleMinBlend
+    var buildingAvgScore = _softCapScore(Math.max(0, metrics.buildingAvgClearance), scoreParams.buildingClearanceRefMeters)
+    var buildingMinScore = _softCapScore(Math.max(0, metrics.buildingMinClearance), scoreParams.buildingClearanceRefMeters)
+    metrics.buildingObstacleScore = hasBuildingHeightData
+        ? (buildingAvgScore * (1 - scoreParams.buildingMinBlend) + buildingMinScore * scoreParams.buildingMinBlend)
+        : 0
     if (smoothScore < 0) smoothScore = 0
+    if (!isFinite(obstacleScore) || obstacleScore < 0) obstacleScore = 0
+
+    metrics.scoreBreakdown = {
+        signal: weights.signal * (signalBlend * scales.signal),
+        obstacle: weights.obstacle * (obstacleScore * scales.obstacle),
+        building: weights.building * (metrics.buildingObstacleScore * scales.building),
+        smooth: weights.smooth * (smoothScore * scales.smooth),
+        length: weights.length * (lengthScore * scales.length)
+    }
 
     metrics.overscore =
-        weights.signal * (metrics.signalAvg * scales.signal) +
-        weights.obstacle * (metrics.obstacleAvgDistance * scales.obstacle) +
-        weights.smooth * (smoothScore * scales.smooth) +
-        weights.length * (lengthScore * scales.length)
+        metrics.scoreBreakdown.signal +
+        metrics.scoreBreakdown.obstacle +
+        metrics.scoreBreakdown.building +
+        metrics.scoreBreakdown.smooth +
+        metrics.scoreBreakdown.length
+
+    if (metrics.hardCollisionSamples > 0) {
+        metrics.overscore -= hardCollisionPenalty
+    }
+    if (metrics.buildingCollisionSamples > 0) {
+        metrics.overscore -= scoreParams.buildingHardCollisionPenalty
+    }
 
     return metrics
 }
@@ -733,17 +1271,6 @@ function getMultiPathComparisonMetrics(originalPath, signalPath, lengthPath, smo
 }
 
 function _normalizeComparisonResult(originalMetrics, optimizedMetrics) {
-    if (!originalMetrics || !optimizedMetrics) {
-        return { original: originalMetrics, optimized: optimizedMetrics }
-    }
-
-    var scoreMax = Math.max(originalMetrics.overscore, optimizedMetrics.overscore)
-    var scoreMin = Math.min(originalMetrics.overscore, optimizedMetrics.overscore)
-    if (originalMetrics.overscore > optimizedMetrics.overscore) {
-        originalMetrics.overscore = scoreMin
-        optimizedMetrics.overscore = scoreMax
-    }
-
     return { original: originalMetrics, optimized: optimizedMetrics }
 }
 
@@ -825,8 +1352,11 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         return
     }
 
+    _removeGeneratedOptimizationWaypoints(missionController)
     originalPathWaypoints = _extractMissionPath(missionController)
     _cacheOriginalWaypoints()
+    _markOptimizationFixedEndpoints(missionController)
+    _markOptimizationLockedAnchors(missionController)
     
     // 清除之前的debug数据
     clearDebugSearchTrees()
@@ -842,9 +1372,14 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     var corridorSegmentRatio = getConfig('astar', 'corridor.segmentRatio', 0.18)
     var corridorMaxMeters = getConfig('astar', 'corridor.maxMeters', 80.0)
     var collisionRelaxMultiplier = getConfig('astar', 'corridor.collisionRelaxMultiplier', 3.0)
-    var densifyTargetSpacingMeters = isFinite(options.bridgeTargetSpacingMeters) ? options.bridgeTargetSpacingMeters : 320.0
-    var densifyMinSegmentLengthMeters = isFinite(options.bridgeMinSegmentLengthMeters) ? options.bridgeMinSegmentLengthMeters : 260.0
+    var originalAnchorMoveRadiusMeters = isFinite(options.originalAnchorMoveRadiusMeters)
+        ? Math.max(0, Number(options.originalAnchorMoveRadiusMeters))
+        : getConfig('astar', 'anchorMoveRadiusMeters', 20.0)
+    var densifyTargetSpacingMeters = isFinite(options.bridgeTargetSpacingMeters) ? options.bridgeTargetSpacingMeters : 180.0
+    var densifyMinSegmentLengthMeters = isFinite(options.bridgeMinSegmentLengthMeters) ? options.bridgeMinSegmentLengthMeters : 150.0
+    var densifyMinInsertPerSegment = isFinite(options.bridgeMinInsertPerSegment) ? Math.max(0, Math.round(options.bridgeMinInsertPerSegment)) : 0
     var densifyMaxInsertPerSegment = isFinite(options.bridgeMaxInsertPerSegment) ? Math.max(1, Math.round(options.bridgeMaxInsertPerSegment)) : 2
+    var densifyTwoPointInsertCount = isFinite(options.bridgeTwoPointInsertCount) ? Math.max(0, Math.round(options.bridgeTwoPointInsertCount)) : NaN
 
     // Signal model parameters (align with heatmap layer for consistency)
     var attenExp = getConfig('astar', 'signalModel.attenuationExponent', 1.2)
@@ -870,10 +1405,22 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
     }
 
     function isOptimizableMissionItem(item) {
-        return isPathWaypointItem(item)
-            && item.isSimpleItem
-            && !item.isTakeoffItem
-            && !item.isLandCommand
+        if (!isPathWaypointItem(item)
+                || !item.isSimpleItem
+                || item.isTakeoffItem
+                || item.isLandCommand) {
+            return false
+        }
+
+        if (item._optimizerFixedEndpoint) {
+            return false
+        }
+
+        if (item._optimizerLockedAnchor) {
+            return originalAnchorMoveRadiusMeters > 0
+        }
+
+        return true
     }
 
     function describeMissionItem(item) {
@@ -897,7 +1444,8 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
             out.push({
                 visualIndex: i,
                 item: item,
-                adjustable: isOptimizableMissionItem(item)
+                adjustable: isOptimizableMissionItem(item),
+                originalAnchor: !!item._optimizerLockedAnchor && !item._optimizerGeneratedWaypoint
             })
         }
         return out
@@ -996,6 +1544,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                 var insertedItem = missionController.insertSimpleMissionItem(midCoord, insertIndex, false)
                 applyInsertedWaypointAltitude(insertedItem, rawAltitude)
                 if (insertedItem) {
+                    _markGeneratedOptimizationWaypoint(insertedItem, 'cpp-detour')
                     insertedItem._collisionMoved = true
                     insertedItem.dirty = true
                 }
@@ -1063,6 +1612,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                 var midCoord = buildCoordinateFromCpp(optimizedPath[mid], midAltitude)
                 var insertedItem = missionController.insertSimpleMissionItem(midCoord, waypoints[1].visualIndex, false)
                 applyInsertedWaypointAltitude(insertedItem, midAltitude)
+                _markGeneratedOptimizationWaypoint(insertedItem, 'cpp-two-point')
             }
 
             var weatherEscapes = fixWaypointsInsideWeather(missionController)
@@ -1086,9 +1636,9 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         }
         var insertedTotal = 0
         var twoPointMission = waypoints.length === 2
-        var targetSpacingMeters = twoPointMission ? Math.max(densifyTargetSpacingMeters, 380.0) : densifyTargetSpacingMeters
-        var minSegmentLengthMeters = twoPointMission ? Math.max(densifyMinSegmentLengthMeters, 220.0) : densifyMinSegmentLengthMeters
-        var maxInsertPerSegment = twoPointMission ? 2 : densifyMaxInsertPerSegment
+        var targetSpacingMeters = twoPointMission ? Math.max(densifyTargetSpacingMeters, 180.0) : densifyTargetSpacingMeters
+        var minSegmentLengthMeters = twoPointMission ? Math.max(densifyMinSegmentLengthMeters, 100.0) : densifyMinSegmentLengthMeters
+        var maxInsertPerSegment = twoPointMission ? Math.max(2, densifyMaxInsertPerSegment) : Math.max(2, densifyMaxInsertPerSegment)
 
         for (var seg = waypoints.length - 2; seg >= 0; seg--) {
             var startEntry = waypoints[seg]
@@ -1110,7 +1660,13 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
 
             var insertCount = Math.ceil(segmentDistance / targetSpacingMeters) - 1
             if (twoPointMission) {
-                insertCount = segmentDistance >= minSegmentLengthMeters ? 2 : 0
+                if (isFinite(densifyTwoPointInsertCount)) {
+                    insertCount = segmentDistance >= minSegmentLengthMeters ? densifyTwoPointInsertCount : 0
+                } else {
+                    insertCount = segmentDistance >= minSegmentLengthMeters ? 2 : 0
+                }
+            } else if (segmentDistance >= minSegmentLengthMeters) {
+                insertCount = Math.max(insertCount, densifyMinInsertPerSegment)
             }
             insertCount = Math.max(0, Math.min(maxInsertPerSegment, insertCount))
             if (insertCount < 1) {
@@ -1131,6 +1687,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
                 var bridgeItem = missionController.insertSimpleMissionItem(bridgeCoord, insertIndex, false)
                 applyInsertedWaypointAltitude(bridgeItem, _interpolateFiniteValue(startRawAltitude, endRawAltitude, t, bridgeCoord.altitude))
                 if (bridgeItem) {
+                    _markGeneratedOptimizationWaypoint(bridgeItem, 'bridge')
                     bridgeItem.dirty = true
                 }
             }
@@ -1158,7 +1715,6 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         return composite
     }
 
-    _markOptimizationFixedEndpoints(missionController)
     var pathWaypoints = collectPathWaypoints()
     console.info('[TowerOptimize] A* collected', pathWaypoints.length, 'path waypoint(s)')
     if (pathWaypoints.length === 2) {
@@ -1293,8 +1849,9 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         var lonDiff = coord.longitude - nearestSensor.lon
         var bearing = Math.atan2(latDiff, lonDiff)
         
-        // 移动到安全距离：noFlyRadius + buffer + 10m
-        var safeDistance = nearestSensor.effectiveRadius + bufferMeters + 10
+        // Move just outside the no-fly edge instead of adding a large fixed gap.
+        var escapeMarginMeters = Math.max(2.0, Math.min(4.0, bufferMeters * 0.5 + 0.8))
+        var safeDistance = nearestSensor.effectiveRadius + bufferMeters + escapeMarginMeters
         var latOffset = (safeDistance / 111320) * Math.sin(bearing)
         var lonOffset = (safeDistance / (111320 * Math.cos(coord.latitude * Math.PI / 180))) * Math.cos(bearing)
         
@@ -1320,6 +1877,7 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         if (!orig.isValid || !next.isValid) return
         var origWeatherCollision = checkWeatherCollision(orig.latitude, orig.longitude)
         var origDistToPrev = NaN
+        var anchorMoveBudget = entry.originalAnchor ? originalAnchorMoveRadiusMeters : NaN
         
         var origDistToNext = distanceMeters(orig.latitude, orig.longitude, next.latitude, next.longitude)
 
@@ -1368,6 +1926,9 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
 
                 // 硬约束：常规任务严格限制在原航线附近，只有天气/禁飞等硬碰撞才放宽。
                 var maxDeviation = computeDeviationBudget(origDistToNext, origDistToPrev, item._collisionMoved || origWeatherCollision)
+                if (isFinite(anchorMoveBudget) && anchorMoveBudget > 0) {
+                    maxDeviation = Math.min(maxDeviation, anchorMoveBudget)
+                }
                 if (deviationFromOrig > maxDeviation) {
                     var discountLinear = maxDeviation / deviationFromOrig
                     var discount = discountLinear * discountLinear  // 平方衰减
@@ -1733,6 +2294,9 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         console.log('[TowerOptimize] JS A* new distance to next:', dNext.toFixed(2), 'm (was', origDistToNext.toFixed(2), 'm)')
         var deviationFromOrigJs = distanceMeters(newCoord.latitude, newCoord.longitude, orig.latitude, orig.longitude)
         var maxDeviationJs = computeDeviationBudget(origDistToNext, origDistToPrev, item._collisionMoved || origWeatherCollision)
+        if (isFinite(anchorMoveBudget) && anchorMoveBudget > 0) {
+            maxDeviationJs = Math.min(maxDeviationJs, anchorMoveBudget)
+        }
         if (deviationFromOrigJs > maxDeviationJs) {
             console.warn('[TowerOptimize] Revert: deviation', deviationFromOrigJs.toFixed(2), 'm exceeds hard corridor', maxDeviationJs.toFixed(2), 'm')
             revert = true
@@ -1798,7 +2362,13 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         debugSearchTrees.push(debugTree)
     }
 
-    console.info('[TowerOptimize] A* processing', pathWaypoints.length - 2, 'interior waypoint(s)')
+    var adjustableInteriorCount = 0
+    for (var countIndex = 1; countIndex < pathWaypoints.length - 1; countIndex++) {
+        if (pathWaypoints[countIndex] && pathWaypoints[countIndex].adjustable) {
+            adjustableInteriorCount++
+        }
+    }
+    console.info('[TowerOptimize] A* processing', adjustableInteriorCount, 'adjustable interior waypoint(s)')
     for (var wi = 1; wi < pathWaypoints.length - 1; wi++) {
         var currentWp = pathWaypoints[wi]
         var prevWp = pathWaypoints[wi - 1]
@@ -1873,8 +2443,9 @@ function optimizeMissionAStar(missionController, planMasterController, options) 
         }
         
         // 跳过避障移动过的waypoint - 这些点是为了安全必须保留的
-        if (currItem._collisionMoved || nextItem._collisionMoved) {
-            console.log('[TowerOptimize] Skipping merge check for waypoint', mi, '- collision-moved waypoint must be preserved')
+        if (currItem._collisionMoved || nextItem._collisionMoved
+                || _isLockedMissionEndpoint(currItem) || _isLockedMissionEndpoint(nextItem)) {
+            console.log('[TowerOptimize] Skipping merge check for waypoint', mi, '- locked or collision-moved waypoint must be preserved')
             continue
         }
         
@@ -1913,6 +2484,7 @@ function generateMultiPathPlans(missionController, planMasterController, options
         loadTowers()
     }
 
+    _removeGeneratedOptimizationWaypoints(missionController)
     var basePath = _extractMissionPath(missionController)
     if (!basePath || basePath.length < 2) {
         return null
@@ -1924,6 +2496,9 @@ function generateMultiPathPlans(missionController, planMasterController, options
     var baseWeightDeviation = getConfig('astar', 'weightDeviation', 0.25)
     var baseWeightSignal = getConfig('astar', 'weightSignal', 18000)
     var baseOptions = (typeof options === 'object' && options) ? options : {}
+    var anchorMoveRadiusForVariants = isFinite(baseOptions.originalAnchorMoveRadiusMeters)
+        ? Math.max(0, Number(baseOptions.originalAnchorMoveRadiusMeters))
+        : getConfig('astar', 'anchorMoveRadiusMeters', 20.0)
 
     function buildOptions(overrides) {
         var out = {}
@@ -1935,36 +2510,50 @@ function generateMultiPathPlans(missionController, planMasterController, options
     }
 
     function runVariant(variantOptions, postProcess) {
-        _applyMissionPath(missionController, basePath)
-        optimizeMissionAStar(missionController, planMasterController, variantOptions)
-        var path = _extractMissionPath(missionController)
-        if (postProcess) {
-            path = postProcess(path)
+        if (!_applyMissionPathExact(missionController, basePath)) {
+            console.warn('[TowerOptimize] Exact base-path restore failed, falling back to partial apply')
+            _applyMissionPath(missionController, basePath)
         }
-        return path
+        optimizeMissionAStar(missionController, planMasterController, variantOptions)
+        var snapshot = _extractMissionPathSnapshot(missionController)
+        var path = snapshot.path
+        if (postProcess) {
+            path = postProcess(path, snapshot.anchorIndices)
+        }
+        return {
+            path: path,
+            anchorIndices: snapshot.anchorIndices
+        }
     }
 
-    var signalPath = runVariant(buildOptions({
-        weightDeviation: baseWeightDeviation * 0.7,
-        weightSignal: baseWeightSignal * 1.5
+    var signalResult = runVariant(buildOptions({
+        weightDeviation: baseWeightDeviation * 0.55,
+        weightSignal: baseWeightSignal * 1.8,
+        originalAnchorMoveRadiusMeters: anchorMoveRadiusForVariants,
+        bridgeTargetSpacingMeters: 95.0,
+        bridgeMinSegmentLengthMeters: 85.0,
+        bridgeMinInsertPerSegment: 2,
+        bridgeMaxInsertPerSegment: 3,
+        bridgeTwoPointInsertCount: 3
     }), null)
+    var signalPath = signalResult.path
+    var signalAnchorIndices = signalResult.anchorIndices
 
-    var lengthPath = runVariant(buildOptions({
-        weightDeviation: baseWeightDeviation * 1.8,
-        weightSignal: baseWeightSignal * 0.6
-    }), function(path) {
-        return _straightenPath(path, 0.55)
+    var lengthPath = _postProcessPathByAnchorIndices(signalPath, signalAnchorIndices, function(segment) {
+        return _straightenSegmentNearReference(segment, 0.26, 24.0)
     })
 
-    var smoothPath = runVariant(buildOptions({
-        weightDeviation: baseWeightDeviation * 1.2,
-        weightSignal: baseWeightSignal * 0.9
-    }), function(path) {
-        return _smoothPath(path, 2, 0.35)
+    var smoothPath = _postProcessPathByAnchorIndices(signalPath, signalAnchorIndices, function(segment) {
+        return _smoothSegmentNearReference(segment, 1, 0.14, 18.0)
     })
 
-    _applyMissionPath(missionController, signalPath)
+    if (!_applyMissionPathExact(missionController, signalPath)) {
+        console.warn('[TowerOptimize] Exact signal-path apply failed, falling back to partial apply')
+        _applyMissionPath(missionController, signalPath)
+    }
     checkAndFixPathSegments(missionController)
+    applyTerrainClearancePasses(missionController, planMasterController, 3)
+    signalPath = _extractMissionPath(missionController)
 
     if (planMasterController) planMasterController.dirty = true
 
@@ -2020,6 +2609,70 @@ function _clearOptimizationFixedEndpoints(missionController) {
     }
 }
 
+function _clearOptimizationLockedAnchors(missionController) {
+    if (!missionController || !missionController.visualItems) {
+        return
+    }
+
+    var visualItems = missionController.visualItems
+    for (var i = 0; i < visualItems.count; i++) {
+        var item = visualItems.get(i)
+        if (!item) continue
+        item._optimizerLockedAnchor = false
+    }
+}
+
+function _markOptimizationLockedAnchors(missionController) {
+    _clearOptimizationLockedAnchors(missionController)
+
+    var pathWaypoints = _collectMissionPathWaypoints(missionController)
+    var lockedIndices = []
+    for (var i = 0; i < pathWaypoints.length; i++) {
+        var entry = pathWaypoints[i]
+        if (!entry || !entry.item) continue
+        if (entry.item._optimizerGeneratedWaypoint) continue
+        entry.item._optimizerLockedAnchor = true
+        lockedIndices.push(entry.visualIndex)
+    }
+
+    console.info('[TowerOptimize] Locked original mission anchors:', lockedIndices.length > 0 ? lockedIndices.join(',') : 'none')
+}
+
+function _markGeneratedOptimizationWaypoint(item, kind) {
+    if (!item) {
+        return
+    }
+
+    item._optimizerGeneratedWaypoint = true
+    item._optimizerGeneratedKind = kind || 'generated'
+    item._optimizerLockedAnchor = false
+    item._optimizerFixedEndpoint = false
+}
+
+function _removeGeneratedOptimizationWaypoints(missionController) {
+    if (!missionController || !missionController.visualItems) {
+        return 0
+    }
+
+    var entries = _collectMissionPathWaypoints(missionController)
+    var removedCount = 0
+    for (var i = entries.length - 1; i >= 0; i--) {
+        var entry = entries[i]
+        if (!entry || !entry.item || !entry.item._optimizerGeneratedWaypoint) {
+            continue
+        }
+
+        missionController.removeVisualItem(entry.visualIndex)
+        removedCount++
+    }
+
+    if (removedCount > 0) {
+        console.info('[TowerOptimize] Removed', removedCount, 'previously generated optimization waypoint(s) before recomputing')
+    }
+
+    return removedCount
+}
+
 function _markOptimizationFixedEndpoints(missionController) {
     _clearOptimizationFixedEndpoints(missionController)
 
@@ -2044,7 +2697,7 @@ function _markOptimizationFixedEndpoints(missionController) {
 }
 
 function _isLockedMissionEndpoint(item) {
-    return !!(item && item._optimizerFixedEndpoint)
+    return !!(item && (item._optimizerFixedEndpoint || item._optimizerLockedAnchor))
 }
 
 function _plannedHomeAltitude(missionController) {
@@ -2412,6 +3065,31 @@ function _matchWaypointIndexForSegmentCoord(pathWaypoints, coord, hintIndex) {
     }
 
     return bestDistance <= 25.0 ? bestIndex : -1
+}
+
+function applyTerrainClearancePasses(missionController, planMasterController, maxPasses) {
+    var attempts = Math.max(1, maxPasses || 1)
+    var lastResult = {
+        adjustedCount: 0,
+        collidingCount: 0,
+        pendingTerrainCount: 0,
+        floorAdjustedCount: 0,
+        buildingAdjustedCount: 0,
+        buildingSegmentCount: 0,
+        missingHomeAltitude: false
+    }
+
+    for (var passIndex = 0; passIndex < attempts; passIndex++) {
+        lastResult = applyTerrainClearancePass(missionController, planMasterController, {})
+        if (!(lastResult.pendingTerrainCount > 0
+                || lastResult.collidingCount > 0
+                || lastResult.adjustedCount > 0
+                || lastResult.missingHomeAltitude)) {
+            break
+        }
+    }
+
+    return lastResult
 }
 
 function applyTerrainClearancePass(missionController, planMasterController, options) {
@@ -3342,30 +4020,52 @@ function _findWeatherAvoidancePoint(p1, p2, sensor, weatherBufferMeters) {
 
     var sensorCoord = Pos.QtPositioning.coordinate(sensor.lat, sensor.lon)
     var baseBearing = _weatherCandidateBearing(p1, p2, sensorCoord)
-    var clearanceMeters = Math.max(3, Math.min(6, weatherBufferMeters + 1))
-    var baseRadius = Math.max(18, (sensor.radius || 100) + weatherBufferMeters + clearanceMeters)
+    var directDistance = distanceMeters(p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+    var clearanceMeters = Math.max(1.5, Math.min(3.0, weatherBufferMeters * 0.45 + 0.75))
+    var baseRadius = Math.max(12, _weatherNoFlyRadius(sensor, weatherBufferMeters) + clearanceMeters)
     var headingOffsets = [90, -90, 75, -75, 105, -105, 60, -60, 120, -120, 45, -45, 135, -135, 0, 180]
+    var best = null
 
-    for (var radius = baseRadius; radius <= baseRadius + 140; radius += 8) {
-        for (var hi = 0; hi < headingOffsets.length; hi++) {
-            var candidate = sensorCoord.atDistanceAndAzimuth(radius, baseBearing + headingOffsets[hi])
-            candidate.altitude = p1.altitude
+    function considerCandidate(candidate, radius, headingOffset) {
+        if (!candidate || !candidate.isValid) {
+            return
+        }
 
-            if (_hasWeatherCollisionAt(candidate) || _hasBuildingCollisionAt(candidate)) {
-                continue
-            }
-            if (findSegmentCollision(p1, candidate, weatherBufferMeters) || findSegmentCollision(candidate, p2, weatherBufferMeters)) {
-                continue
-            }
-            if (!_isBuildingSegmentClear(p1, candidate) || !_isBuildingSegmentClear(candidate, p2)) {
-                continue
-            }
+        candidate.altitude = p1.altitude
 
-            return candidate
+        if (_hasWeatherCollisionAt(candidate) || _hasBuildingCollisionAt(candidate)) {
+            return
+        }
+        if (findSegmentCollision(p1, candidate, weatherBufferMeters) || findSegmentCollision(candidate, p2, weatherBufferMeters)) {
+            return
+        }
+        if (!_isBuildingSegmentClear(p1, candidate) || !_isBuildingSegmentClear(candidate, p2)) {
+            return
+        }
+
+        var detourDistance = distanceMeters(p1.latitude, p1.longitude, candidate.latitude, candidate.longitude)
+                + distanceMeters(candidate.latitude, candidate.longitude, p2.latitude, p2.longitude)
+                - directDistance
+        var boundaryPenalty = Math.abs(radius - baseRadius) * 0.55
+        var headingPenalty = Math.abs(headingOffset) * 0.12
+        var score = detourDistance + boundaryPenalty + headingPenalty
+
+        if (!best || score < best.score) {
+            best = {
+                coord: candidate,
+                score: score
+            }
         }
     }
 
-    return null
+    for (var radius = baseRadius; radius <= baseRadius + 80; radius += 4) {
+        for (var hi = 0; hi < headingOffsets.length; hi++) {
+            var candidate = sensorCoord.atDistanceAndAzimuth(radius, baseBearing + headingOffsets[hi])
+            considerCandidate(candidate, radius, headingOffsets[hi])
+        }
+    }
+
+    return best ? best.coord : null
 }
 
 function _candidateWaypointHeadings(prevCoord, currCoord, nextCoord) {
@@ -3480,7 +4180,7 @@ function _findWaypointEscapeFromWeather(currCoord, prevCoord, nextCoord, weather
     }
 
     var headings = _candidateWaypointHeadings(prevCoord, currCoord, nextCoord)
-    var baseRadius = Math.max(18, (sensor.radius || 100) + weatherBufferMeters + 10)
+    var baseRadius = Math.max(12, _weatherNoFlyRadius(sensor, weatherBufferMeters) + 4)
     var best = null
     var origPrevDistance = (prevCoord && prevCoord.isValid) ? distanceMeters(currCoord.latitude, currCoord.longitude, prevCoord.latitude, prevCoord.longitude) : NaN
     var origNextDistance = (nextCoord && nextCoord.isValid) ? distanceMeters(currCoord.latitude, currCoord.longitude, nextCoord.latitude, nextCoord.longitude) : NaN
@@ -3518,13 +4218,13 @@ function _findWaypointEscapeFromWeather(currCoord, prevCoord, nextCoord, weather
         }
     }
 
-    for (var radius = baseRadius; radius <= baseRadius + 220; radius += 10) {
+    for (var radius = baseRadius; radius <= baseRadius + 120; radius += 6) {
         var weatherHeadings = [baseBearing, baseBearing + 25, baseBearing - 25, baseBearing + 45, baseBearing - 45]
         for (var wh = 0; wh < weatherHeadings.length; wh++) {
             considerCandidate(sensorCoord.atDistanceAndAzimuth(radius, weatherHeadings[wh]), radius)
         }
 
-        var localRadius = Math.max(10, radius - baseRadius + 10)
+        var localRadius = Math.max(6, radius - baseRadius + 6)
         for (var hi = 0; hi < headings.length; hi++) {
             considerCandidate(currCoord.atDistanceAndAzimuth(localRadius, headings[hi]), localRadius)
         }
@@ -3696,6 +4396,7 @@ function checkAndFixPathSegments(missionController) {
             if (countAfter > countBefore) {
                 var newItem = visualItems.get(j)
                 if (newItem) {
+                    _markGeneratedOptimizationWaypoint(newItem, 'weather-avoid')
                     newItem._collisionMoved = true
                     newItem.dirty = true
                 }

@@ -476,6 +476,30 @@ void PlanMasterController::saveToFile(const QString& filename)
     }
 }
 
+bool PlanMasterController::exportCurrentPlanToFile(const QString& filename)
+{
+    if (filename.isEmpty()) {
+        return false;
+    }
+
+    QString planFilename = filename;
+    if (!QFileInfo(filename).fileName().contains(".")) {
+        planFilename += QString(".%1").arg(fileExtension());
+    }
+
+    QFile file(planFilename);
+
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qgcApp()->showAppMessage(tr("Plan export error %1 : %2").arg(filename).arg(file.errorString()));
+        return false;
+    }
+
+    QJsonDocument saveDoc = saveToJson();
+    file.write(saveDoc.toJson());
+    file.close();
+    return true;
+}
+
 void PlanMasterController::saveToKml(const QString& filename)
 {
     if (filename.isEmpty()) {

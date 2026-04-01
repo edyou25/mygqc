@@ -31,6 +31,15 @@ Rectangle {
     property var signalPathWaypoints: []
     property var lengthPathWaypoints: []
     property var smoothPathWaypoints: []
+    property var exportedPlanFiles: []
+    property bool showOriginalRoute: true
+    property bool showSignalRoute: true
+    property bool showLengthRoute: true
+    property bool showSmoothRoute: true
+    readonly property bool hasOriginalRoute: originalPathWaypoints && originalPathWaypoints.length > 0
+    readonly property bool hasSignalRoute: signalPathWaypoints && signalPathWaypoints.length > 0
+    readonly property bool hasLengthRoute: lengthPathWaypoints && lengthPathWaypoints.length > 0
+    readonly property bool hasSmoothRoute: smoothPathWaypoints && smoothPathWaypoints.length > 0
 
     // Layout tuning
     property real _barWidth: Math.max(18, ScreenTools.defaultFontPixelWidth * 2.5)
@@ -98,6 +107,21 @@ Rectangle {
 
     }
 
+    function _formatExportedPlans() {
+        if (!exportedPlanFiles || exportedPlanFiles.length === 0) {
+            return "No exported comparison plans yet"
+        }
+
+        var lines = []
+        for (var i = 0; i < exportedPlanFiles.length; i++) {
+            var fileInfo = exportedPlanFiles[i]
+            if (!fileInfo || !fileInfo.filePath) continue
+            lines.push((fileInfo.label || "path") + ": " + fileInfo.filePath)
+        }
+
+        return lines.join("\n")
+    }
+
     ColumnLayout {
         id:                 mainColumn
         anchors.fill:       parent
@@ -110,6 +134,61 @@ Rectangle {
             font.pointSize:     ScreenTools.defaultFontPointSize * 1.2
             font.bold:          true
             Layout.fillWidth:   true
+        }
+
+        Rectangle {
+            Layout.fillWidth:   true
+            color:              qgcPal.windowShade
+            border.color:       qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.1) : Qt.rgba(1,1,1,0.1)
+            border.width:       1
+            radius:             4
+            implicitHeight:     routeToggleColumn.implicitHeight + ScreenTools.defaultFontPixelHeight
+
+            Column {
+                id:                 routeToggleColumn
+                anchors.fill:       parent
+                anchors.margins:    ScreenTools.defaultFontPixelWidth
+                spacing:            ScreenTools.defaultFontPixelHeight * 0.3
+
+                QGCLabel {
+                    text:           "Route Visibility"
+                    font.pointSize: ScreenTools.defaultFontPointSize * 0.9
+                    font.bold:      true
+                }
+
+                Flow {
+                    width:      parent.width
+                    spacing:    ScreenTools.defaultFontPixelWidth * 1.2
+
+                    QGCCheckBox {
+                        text:       qsTr("Original")
+                        visible:    comparisonPanel.hasOriginalRoute
+                        checked:    comparisonPanel.showOriginalRoute
+                        onClicked:  comparisonPanel.showOriginalRoute = checked
+                    }
+
+                    QGCCheckBox {
+                        text:       qsTr("Signal")
+                        visible:    comparisonPanel.hasSignalRoute
+                        checked:    comparisonPanel.showSignalRoute
+                        onClicked:  comparisonPanel.showSignalRoute = checked
+                    }
+
+                    QGCCheckBox {
+                        text:       qsTr("Shorter")
+                        visible:    comparisonPanel.hasLengthRoute
+                        checked:    comparisonPanel.showLengthRoute
+                        onClicked:  comparisonPanel.showLengthRoute = checked
+                    }
+
+                    QGCCheckBox {
+                        text:       qsTr("Smoother")
+                        visible:    comparisonPanel.hasSmoothRoute
+                        checked:    comparisonPanel.showSmoothRoute
+                        onClicked:  comparisonPanel.showSmoothRoute = checked
+                    }
+                }
+            }
         }
 
         ScrollView {
@@ -138,7 +217,7 @@ Rectangle {
                         width: ScreenTools.defaultFontPixelWidth * 1.2
                         height: width
                         radius: 2
-                        color: "#4569df"
+                        color: "#FF3B30"
                     }
 
                     QGCLabel {
@@ -165,14 +244,14 @@ Rectangle {
                         height: width
                         radius: 2
                         color: "#f2a900"
-                        visible: comparisonPanel.comparisonData.length !== null && comparisonPanel.comparisonData.length !== undefined
+                        visible: comparisonPanel.hasLengthRoute
                     }
 
                     QGCLabel {
                         text: "Shorter"
                         font.pointSize: ScreenTools.defaultFontPointSize * 0.8
                         opacity: 0.8
-                        visible: comparisonPanel.comparisonData.length !== null && comparisonPanel.comparisonData.length !== undefined
+                        visible: comparisonPanel.hasLengthRoute
                     }
 
                     Rectangle {
@@ -180,14 +259,14 @@ Rectangle {
                         height: width
                         radius: 2
                         color: "#2fb66c"
-                        visible: comparisonPanel.comparisonData.smooth !== null && comparisonPanel.comparisonData.smooth !== undefined
+                        visible: comparisonPanel.hasSmoothRoute
                     }
 
                     QGCLabel {
                         text: "Smoother"
                         font.pointSize: ScreenTools.defaultFontPointSize * 0.8
                         opacity: 0.8
-                        visible: comparisonPanel.comparisonData.smooth !== null && comparisonPanel.comparisonData.smooth !== undefined
+                        visible: comparisonPanel.hasSmoothRoute
                     }
 
                     Item { Layout.fillWidth: true }
@@ -202,10 +281,11 @@ Rectangle {
                         model: [
                             { name: "Min Obstacle Distance", key: "obstacleMinDistance", unit: "m", format: "f1", higherBetter: true  },
                             { name: "Avg Obstacle Distance", key: "obstacleAvgDistance", unit: "m", format: "f1", higherBetter: true  },
+                            { name: "Building Obstacle Score", key: "buildingObstacleScore", unit: "", format: "f2", higherBetter: true  },
                             { name: "Avg Signal Strength",   key: "signalAvg",          unit: "",  format: "f2", higherBetter: true  },
                             { name: "Min Signal Strength",   key: "signalMin",          unit: "",  format: "f2", higherBetter: true  },
                             { name: "Max Signal Strength",   key: "signalMax",          unit: "",  format: "f2", higherBetter: true  },
-                            { name: "Energy Index",          key: "pathLength",         unit: "",  format: "f2", higherBetter: false },
+                            { name: "Path Length",           key: "pathLength",         unit: "m", format: "f2", higherBetter: false },
                             { name: "Path Smoothness",       key: "pathSmoothness",     unit: "°", format: "f1", higherBetter: false },
                             { name: "Overall Score",         key: "overscore",          unit: "",  format: "f2", higherBetter: true  }
                         ]
@@ -343,6 +423,33 @@ Rectangle {
                         }
                     }
                 }
+
+                Rectangle {
+                    width: parent.width
+                    color: qgcPal.windowShade
+                    border.color: qgcPal.globalTheme === QGCPalette.Light ? Qt.rgba(0,0,0,0.1) : Qt.rgba(1,1,1,0.1)
+                    border.width: 1
+                    radius: 4
+                    implicitHeight: exportInfoColumn.implicitHeight + ScreenTools.defaultFontPixelHeight
+
+                    Column {
+                        id: exportInfoColumn
+                        anchors.fill: parent
+                        anchors.margins: ScreenTools.defaultFontPixelWidth
+                        spacing: ScreenTools.defaultFontPixelHeight * 0.25
+
+                        QGCLabel {
+                            text: "Saved Comparison Plans"
+                            font.pointSize: ScreenTools.defaultFontPointSize * 0.9
+                        }
+
+                        QGCLabel {
+                            text: comparisonPanel._formatExportedPlans()
+                            wrapMode: Text.WordWrap
+                            font.pointSize: ScreenTools.defaultFontPointSize * 0.72
+                        }
+                    }
+                }
             }
         }
 
@@ -466,7 +573,7 @@ Rectangle {
                                     height: parent.height * _origFrac
                                     anchors.bottom: parent.bottom
                                     radius: 2
-                                    color: "#4569df"
+                                    color: "#FF3B30"
                                 }
 
                                 QGCLabel {

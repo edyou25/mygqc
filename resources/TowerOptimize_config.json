@@ -25,6 +25,7 @@
       "maxMeters": 80.0,
       "collisionRelaxMultiplier": 3.0
     },
+    "anchorMoveRadiusMeters": 20.0,
     "separation": {
       "minMeters": 5.0,
       "safeMeters": 15.0
@@ -88,5 +89,37 @@
     "terrainAutoRaiseMarginMeters": 0.0,
     "weatherCollisionCheck": true,
     "weatherBufferMeters": 5.0
+  },
+
+  "score": {
+    "description": "路径评分参数，优先突出信号收益，弱化平滑度和障碍距离的量纲压制",
+    "normalizeWeights": true,
+    "weights": {
+      "signal": 0.80,
+      "obstacle": 0.05,
+      "building": 0.10,
+      "smooth": 0.03,
+      "length": 0.02
+    },
+    "scales": {
+      "signal": 1.0,
+      "obstacle": 1.0,
+      "building": 1.0,
+      "smooth": 0.05,
+      "length": 1.0
+    },
+    "metricSampleSpacingMeters": 20.0,
+    "obstacleNoDataDistanceMeters": 60.0,
+    "signalMinBlend": 0.35,
+    "obstacleMinBlend": 0.40,
+    "buildingMinBlend": 0.55,
+    "hardCollisionPenalty": 6.0,
+    "buildingHardCollisionPenalty": 4.0,
+    "obstacleRewardCapMeters": 25.0,
+    "obstacleMinRefMeters": 12.0,
+    "buildingClearanceRefMeters": 20.0,
+    "buildingNoDataClearanceMeters": 30.0,
+    "lengthRefMeters": 10000.0,
+    "smoothMaxTurnDeg": 180.0
   }
 }

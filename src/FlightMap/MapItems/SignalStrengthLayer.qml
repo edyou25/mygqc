@@ -29,10 +29,10 @@ Item {
     property real displayHighComposite: 0
     property bool contours: true
     property int contourLevels: 6
-    property real opacityFactor: 0.32
+    property real opacityFactor: 0.36
     property real contrastLowPercentile: 0.02
-    property real contrastHighPercentile: 0.985
-    property real contrastGamma: 0.82
+    property real contrastHighPercentile: 0.965
+    property real contrastGamma: 0.72
 
     // Map object injected by parent
     property var map: null
@@ -213,31 +213,31 @@ Item {
             var r,g,b
             var v = clamp01(t)
 
-            if (v < 0.3) {
-                var f = v / 0.3
-                r = Math.round(120 + (220 - 120) * f)
-                g = Math.round(12 + 36 * f)
-                b = Math.round(14 * (1 - f))
-            } else if (v < 0.5) {
-                var f = (v - 0.3) / 0.2
-                r = Math.round(220 + (255 - 220) * f)
-                g = Math.round(48 + 102 * f)
+            if (v < 0.18) {
+                var f = v / 0.18
+                r = Math.round(168 + (228 - 168) * f)
+                g = Math.round(34 + (102 - 34) * f)
+                b = Math.round(18 * (1 - f))
+            } else if (v < 0.38) {
+                var f = (v - 0.18) / 0.20
+                r = Math.round(228 + (255 - 228) * f)
+                g = Math.round(102 + (188 - 102) * f)
                 b = 0
-            } else if (v < 0.72) {
-                var f = (v - 0.5) / 0.22
-                r = 255
-                g = Math.round(150 + 90 * f)
-                b = 0
-            } else if (v < 0.9) {
-                var f = (v - 0.72) / 0.18
-                r = Math.round(255 - 150 * f)
-                g = Math.round(240 + 10 * f)
-                b = 0
+            } else if (v < 0.60) {
+                var f = (v - 0.38) / 0.22
+                r = Math.round(255 - 72 * f)
+                g = Math.round(188 + 44 * f)
+                b = Math.round(8 + 18 * f)
+            } else if (v < 0.82) {
+                var f = (v - 0.60) / 0.22
+                r = Math.round(183 - 96 * f)
+                g = Math.round(232 + 16 * f)
+                b = Math.round(26 + 26 * f)
             } else {
-                var f = (v - 0.9) / 0.1
-                r = Math.round(105 - 55 * f)
-                g = Math.round(250 + 5 * f)
-                b = Math.round(8 + 20 * f)
+                var f = (v - 0.82) / 0.18
+                r = Math.round(87 - 45 * f)
+                g = Math.round(248 + 7 * f)
+                b = Math.round(52 + 42 * f)
             }
 
             return 'rgba('+r+','+g+','+b+','+root.opacityFactor+')'

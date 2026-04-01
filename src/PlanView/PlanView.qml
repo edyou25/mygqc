@@ -45,12 +45,158 @@ Item {
     property bool _waterPersistenceDisabledLogged: false
     property bool _buildingPersistenceDisabledLogged: false
     property int _terrainRecoveryPassesRemaining: 0
+    property bool _startComparisonExportAfterTerrainRecovery: false
+    property var _comparisonExportQueue: []
+    property int _comparisonExportIndex: -1
+    property int _comparisonExportPassesRemaining: 0
+    property var _comparisonExportRestorePath: []
+    property var exportedComparisonPlanFiles: []
 
     function _scheduleTerrainRecoveryPasses(passCount) {
         _terrainRecoveryPassesRemaining = Math.max(0, passCount || 0)
         if (_terrainRecoveryPassesRemaining > 0) {
             _terrainRecoveryTimer.restart()
         }
+    }
+
+    function _resetComparisonExportState() {
+        _comparisonExportTimer.stop()
+        _startComparisonExportAfterTerrainRecovery = false
+        _comparisonExportQueue = []
+        _comparisonExportIndex = -1
+        _comparisonExportPassesRemaining = 0
+        _comparisonExportRestorePath = []
+    }
+
+    function _clearPathComparisonState() {
+        originalPathForDisplay = []
+        signalPathForDisplay = []
+        lengthPathForDisplay = []
+        smoothPathForDisplay = []
+        exportedComparisonPlanFiles = []
+        _resetComparisonExportState()
+        Qt.callLater(_refreshPathComparisonPanel)
+    }
+
+    function _beginQueuedComparisonExport() {
+        if (!_comparisonExportQueue || !_comparisonExportQueue.length) {
+            _resetComparisonExportState()
+            return
+        }
+
+        _startComparisonExportAfterTerrainRecovery = false
+        _comparisonExportIndex = 0
+        _prepareNextComparisonExport()
+    }
+
+    function _prepareNextComparisonExport() {
+        while (_comparisonExportIndex >= 0 && _comparisonExportIndex < _comparisonExportQueue.length) {
+            var spec = _comparisonExportQueue[_comparisonExportIndex]
+            if (!spec || !spec.filePath || !spec.path || spec.path.length < 2) {
+                _comparisonExportIndex++
+                continue
+            }
+
+            if (!TowerOpt.prepareMissionPathForExport(_missionController, spec.path)) {
+                console.warn('[PathOpt] Failed to prepare comparison plan export for', spec.label || spec.filePath)
+                _comparisonExportIndex++
+                continue
+            }
+
+            _comparisonExportPassesRemaining = 3
+            _comparisonExportTimer.restart()
+            return
+        }
+
+        _finishQueuedComparisonExport()
+    }
+
+    function _finishQueuedComparisonExport() {
+        var restorePath = _comparisonExportRestorePath
+        _resetComparisonExportState()
+
+        if (restorePath && restorePath.length >= 2) {
+            TowerOpt.prepareMissionPathForExport(_missionController, restorePath)
+            _scheduleTerrainRecoveryPasses(3)
+        }
+
+        Qt.callLater(_refreshPathComparisonPanel)
+    }
+
+    function _comparisonExportDirectory() {
+        var currentPlanFile = _planMasterController && _planMasterController.currentPlanFile
+            ? _planMasterController.currentPlanFile.toString()
+            : ""
+        if (currentPlanFile.length > 0) {
+            var slashIndex = currentPlanFile.lastIndexOf("/")
+            if (slashIndex > 0) {
+                return currentPlanFile.substring(0, slashIndex)
+            }
+        }
+
+        return (_appSettings && _appSettings.missionSavePath)
+            ? _appSettings.missionSavePath.toString()
+            : ""
+    }
+
+    function _comparisonExportBaseName() {
+        var currentPlanFile = _planMasterController && _planMasterController.currentPlanFile
+            ? _planMasterController.currentPlanFile.toString()
+            : ""
+        if (currentPlanFile.length > 0) {
+            var fileName = currentPlanFile.substring(currentPlanFile.lastIndexOf("/") + 1)
+            var dotIndex = fileName.lastIndexOf(".")
+            return dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName
+        }
+
+        return "astar-" + Qt.formatDateTime(new Date(), "yyyyMMdd-HHmmss")
+    }
+
+    function _buildComparisonExportSpecs(multiResult) {
+        if (!multiResult) {
+            return []
+        }
+
+        var exportDirectory = _comparisonExportDirectory()
+        if (!exportDirectory || exportDirectory.length === 0) {
+            return []
+        }
+
+        var baseName = _comparisonExportBaseName()
+        return [
+            {
+                label: "signal",
+                filePath: exportDirectory + "/" + baseName + "-signal.plan",
+                path: multiResult.signal || []
+            },
+            {
+                label: "shorter",
+                filePath: exportDirectory + "/" + baseName + "-shorter.plan",
+                path: multiResult.length || []
+            },
+            {
+                label: "smoother",
+                filePath: exportDirectory + "/" + baseName + "-smoother.plan",
+                path: multiResult.smooth || []
+            }
+        ]
+    }
+
+    function _exportGeneratedComparisonPlans(multiResult) {
+        var exportSpecs = _buildComparisonExportSpecs(multiResult)
+        if (!exportSpecs.length) {
+            exportedComparisonPlanFiles = []
+            _resetComparisonExportState()
+            return
+        }
+
+        _comparisonExportTimer.stop()
+        _comparisonExportQueue = exportSpecs
+        _comparisonExportIndex = -1
+        _comparisonExportPassesRemaining = 0
+        _comparisonExportRestorePath = multiResult && multiResult.signal ? multiResult.signal : []
+        _startComparisonExportAfterTerrainRecovery = true
+        exportedComparisonPlanFiles = []
     }
 
     function _serializePathPoints(path) {
@@ -164,13 +310,69 @@ Item {
             var passResult = TowerOpt.applyTerrainClearancePass(_missionController, _planMasterController, {})
             _terrainRecoveryPassesRemaining--
 
-            if (_terrainRecoveryPassesRemaining > 0
-                    && (passResult.pendingTerrainCount > 0
-                        || passResult.collidingCount > 0
-                        || passResult.adjustedCount > 0
-                        || passResult.missingHomeAltitude)) {
+            var shouldContinue = _terrainRecoveryPassesRemaining > 0
+                    || passResult.pendingTerrainCount > 0
+                    || passResult.adjustedCount > 0
+                    || passResult.missingHomeAltitude
+
+            if (shouldContinue) {
                 _terrainRecoveryTimer.restart()
+                return
             }
+
+            if (_startComparisonExportAfterTerrainRecovery
+                    && _comparisonExportQueue
+                    && _comparisonExportQueue.length > 0) {
+                _beginQueuedComparisonExport()
+            }
+        }
+    }
+
+    Timer {
+        id: _comparisonExportTimer
+        interval: 1000
+        repeat: false
+        onTriggered: {
+            if (_comparisonExportIndex < 0
+                    || !_comparisonExportQueue
+                    || _comparisonExportIndex >= _comparisonExportQueue.length) {
+                _finishQueuedComparisonExport()
+                return
+            }
+
+            var spec = _comparisonExportQueue[_comparisonExportIndex]
+            var passResult = TowerOpt.applyTerrainClearancePass(_missionController, _planMasterController, {})
+
+            if (_comparisonExportPassesRemaining > 0) {
+                _comparisonExportPassesRemaining--
+            }
+
+            if (_comparisonExportPassesRemaining > 0
+                    || passResult.pendingTerrainCount > 0
+                    || passResult.adjustedCount > 0
+                    || passResult.missingHomeAltitude) {
+                _comparisonExportTimer.restart()
+                return
+            }
+
+            if (spec && spec.filePath && _planMasterController.exportCurrentPlanToFile(spec.filePath)) {
+                var exportedList = exportedComparisonPlanFiles ? exportedComparisonPlanFiles.slice(0) : []
+                exportedList.push({
+                    label: spec.label || "",
+                    filePath: spec.filePath,
+                    pointCount: spec.path ? spec.path.length : 0
+                })
+                exportedComparisonPlanFiles = exportedList
+
+                console.info('[PathOpt] Exported comparison plan:',
+                             spec.label || 'path',
+                             spec.filePath,
+                             'points=',
+                             spec.path ? spec.path.length : 0)
+            }
+
+            _comparisonExportIndex++
+            _prepareNextComparisonExport()
         }
     }
 
@@ -642,6 +844,28 @@ Item {
         console.log("[RoadLayer] parsed roads:", out.length)
         return out
     }
+
+    function _roadHighwayClass(road) {
+        if (!road || !road.tags) return ""
+
+        var tags = road.tags
+        var highway = tags.highway || tags.class || tags.fclass || tags.type || ""
+        return highway ? highway.toString().toLowerCase() : ""
+    }
+
+    function _roadBaseVisualWidth(road) {
+        var highway = _roadHighwayClass(road)
+
+        if (highway.indexOf("motorway") !== -1 || highway.indexOf("trunk") !== -1) return 10
+        if (highway.indexOf("primary") !== -1) return 8
+        if (highway.indexOf("secondary") !== -1) return 7
+        if (highway.indexOf("tertiary") !== -1) return 6
+        if (highway.indexOf("residential") !== -1 || highway.indexOf("unclassified") !== -1) return 5
+        if (highway.indexOf("service") !== -1 || highway.indexOf("living_street") !== -1) return 4
+
+        return 5
+    }
+
     function loadRoadsFromResource(url, showAfterLoad) {
         if (editorMap.roadsLoaded) {
             editorMap.showRoadLayer = !!showAfterLoad
@@ -768,6 +992,27 @@ Item {
                                              qsTr("You have changed the default altitude for mission items. Would you like to apply that altitude to all the items in the current mission?"),
                                              StandardButton.Yes | StandardButton.No,
                                              function() { _missionController.applyDefaultMissionAltitude() })
+            }
+        }
+    }
+
+    Connections {
+        target: _visualItems
+        function onCountChanged() {
+            if (!_visualItems || _visualItems.count <= 1) {
+                _clearPathComparisonState()
+            }
+        }
+    }
+
+    Connections {
+        target: _planMasterController
+        function onCurrentPlanFileChanged() {
+            if (!_planMasterController || !_visualItems) {
+                return
+            }
+            if (!_planMasterController.containsItems || _visualItems.count <= 1) {
+                _clearPathComparisonState()
             }
         }
     }
@@ -965,6 +1210,7 @@ Item {
         comparisonPanelLoader.item.signalPathWaypoints = signalPathForDisplay || []
         comparisonPanelLoader.item.lengthPathWaypoints = lengthPathForDisplay || []
         comparisonPanelLoader.item.smoothPathWaypoints = smoothPathForDisplay || []
+        comparisonPanelLoader.item.exportedPlanFiles = exportedComparisonPlanFiles || []
         comparisonPanelLoader.item.refresh()
     }
 
@@ -1262,8 +1508,11 @@ Item {
                 delegate: MissionItemMapVisual {
                     map:         editorMap
                     onClicked:   _missionController.setCurrentPlanViewSeqNum(sequenceNumber, false)
-                    opacity:     _editingLayer == _layerMission ? 1 : editorMap._nonInteractiveOpacity
+                    opacity:     _editingLayer == _layerMission
+                                     ? ((!comparisonPanelLoader.item || comparisonPanelLoader.item.showSignalRoute) ? 1 : 0)
+                                     : editorMap._nonInteractiveOpacity
                     interactive: _editingLayer == _layerMission
+                                     && (!comparisonPanelLoader.item || comparisonPanelLoader.item.showSignalRoute)
                     vehicle:     _planMasterController.controllerVehicle
                 }
             }
@@ -1272,20 +1521,24 @@ Item {
             MissionLineView {
                 showSpecialVisual:  _missionController.isROIBeginCurrentItem
                 model:              _missionController.simpleFlightPathSegments
-                opacity:            _editingLayer == _layerMission ? 1 : editorMap._nonInteractiveOpacity
-                lineWidth:          9
-                lineZ:              QGroundControl.zOrderMapItems + 30
-                lineColor:          "#F2FFFFFF"
-                collisionLineColor: "#FFFFC9C9"
-                specialLineColor:   "#D8FFE8"
+                opacity:            _editingLayer == _layerMission
+                                        ? ((!comparisonPanelLoader.item || comparisonPanelLoader.item.showSignalRoute) ? 1 : 0)
+                                        : editorMap._nonInteractiveOpacity
+                lineWidth:          11
+                lineZ:              QGroundControl.zOrderMapItems + 34
+                lineColor:          "#FFFFFFFF"
+                collisionLineColor: "#FFFFFFFF"
+                specialLineColor:   "#FFFFFFFF"
             }
 
             MissionLineView {
                 showSpecialVisual:  _missionController.isROIBeginCurrentItem
                 model:              _missionController.simpleFlightPathSegments
-                opacity:            _editingLayer == _layerMission ? 1 : editorMap._nonInteractiveOpacity
-                lineWidth:          4.5
-                lineZ:              QGroundControl.zOrderMapItems + 31
+                opacity:            _editingLayer == _layerMission
+                                        ? ((!comparisonPanelLoader.item || comparisonPanelLoader.item.showSignalRoute) ? 1 : 0)
+                                        : editorMap._nonInteractiveOpacity
+                lineWidth:          5.5
+                lineZ:              QGroundControl.zOrderMapItems + 35
                 lineColor:          "#156DFF"
                 collisionLineColor: "#FF3B30"
                 specialLineColor:   "#19C15F"
@@ -1293,10 +1546,14 @@ Item {
 
             MapPolyline {
                 id:                 originalPathPolyline
-                line.width:         4
-                line.color:         '#4569df'
-                z:                  QGroundControl.zOrderMapItems + 29
-                opacity:            _editingLayer == _layerMission && originalPathForDisplay.length > 0 ? 0.75 : 0
+                line.width:         5
+                line.color:         '#FF3B30'
+                z:                  QGroundControl.zOrderMapItems + 33
+                opacity:            _editingLayer == _layerMission
+                                        && originalPathForDisplay.length > 0
+                                        && (!comparisonPanelLoader.item || comparisonPanelLoader.item.showOriginalRoute)
+                                        ? 0.95
+                                        : 0
                 path:               originalPathForDisplay
             }
 
@@ -1305,7 +1562,11 @@ Item {
                 line.width:         3
                 line.color:         '#f2a900'
                 z:                  QGroundControl.zOrderMapItems + 28
-                opacity:            _editingLayer == _layerMission && lengthPathForDisplay.length > 0 ? 0.7 : 0
+                opacity:            _editingLayer == _layerMission
+                                        && lengthPathForDisplay.length > 0
+                                        && (!comparisonPanelLoader.item || comparisonPanelLoader.item.showLengthRoute)
+                                        ? 0.7
+                                        : 0
                 path:               lengthPathForDisplay
             }
 
@@ -1314,13 +1575,20 @@ Item {
                 line.width:         3
                 line.color:         '#2fb66c'
                 z:                  QGroundControl.zOrderMapItems + 28
-                opacity:            _editingLayer == _layerMission && smoothPathForDisplay.length > 0 ? 0.7 : 0
+                opacity:            _editingLayer == _layerMission
+                                        && smoothPathForDisplay.length > 0
+                                        && (!comparisonPanelLoader.item || comparisonPanelLoader.item.showSmoothRoute)
+                                        ? 0.7
+                                        : 0
                 path:               smoothPathForDisplay
             }
 
             // Direction arrows in waypoint lines
             MapItemView {
-                model: _editingLayer == _layerMission ? _missionController.directionArrows : undefined
+                model: _editingLayer == _layerMission
+                           && (!comparisonPanelLoader.item || comparisonPanelLoader.item.showSignalRoute)
+                           ? _missionController.directionArrows
+                           : undefined
 
                 delegate: MapLineArrow {
                     fromCoord:      object ? object.coordinate1 : undefined
@@ -1347,15 +1615,31 @@ Item {
             // Road layer render (directly on editorMap because editorMap IS a Map)
             // =======================
             MapItemView {
-                id: roadLayerView
+                id: roadLayerOuterView
                 visible: editorMap.showRoadLayer
-                z: 999999
+                z: QGroundControl.zOrderMapItems - 12
                 model: editorMap.roads
 
                 delegate: MapPolyline {
-                    line.width: 6
-                    line.color: "magenta"
-                    z: 999999
+                    line.width: _roadBaseVisualWidth(modelData) + 2
+                    line.color: Qt.rgba(0.15, 0.90, 0.66, 0.88)
+                    z: QGroundControl.zOrderMapItems - 12
+                    opacity: _editingLayer == _layerMission ? 0.82 : 0.56
+                    path: modelData.path
+                }
+            }
+
+            MapItemView {
+                id: roadLayerInnerView
+                visible: editorMap.showRoadLayer
+                z: QGroundControl.zOrderMapItems - 11
+                model: editorMap.roads
+
+                delegate: MapPolyline {
+                    line.width: Math.max(2.5, _roadBaseVisualWidth(modelData) - 0.8)
+                    line.color: Qt.rgba(0.86, 0.89, 0.88, 0.92)
+                    z: QGroundControl.zOrderMapItems - 11
+                    opacity: _editingLayer == _layerMission ? 0.88 : 0.62
                     path: modelData.path
                 }
             }
@@ -3818,13 +4102,13 @@ Item {
             readonly property real collapsedH: ScreenTools.defaultFontPixelHeight * 2.6
             height: weightsExpanded ? (ScreenTools.defaultFontPixelHeight * 17.5) : collapsedH
             visible: true
-            property real signalWeightLocal: 0.50
-            property real distanceWeightLocal: 0.50
-            property real weatherWeightLocal: 0.50
-            property real greenlandWeightLocal: 0.50
-            property real buildingWeightLocal: 0.50
-            property real waterWeightLocal: 0.50
-            property real roadsWeightLocal: 0.50
+            property real signalWeightLocal: 1.00
+            property real distanceWeightLocal: 0.18
+            property real weatherWeightLocal: 0.12
+            property real greenlandWeightLocal: 0.08
+            property real buildingWeightLocal: 0.10
+            property real waterWeightLocal: 0.08
+            property real roadsWeightLocal: 0.05
             // 你要的“离边框空隙”就在这里调
             readonly property int sidePad: 24   // 左右留白
             readonly property int topPad: 16    // 上留白
@@ -4633,12 +4917,15 @@ Item {
                         signalPathForDisplay = multiResult.signal || []
                         lengthPathForDisplay = multiResult.length || []
                         smoothPathForDisplay = multiResult.smooth || []
+                        _exportGeneratedComparisonPlans(multiResult)
                     } else {
                         TowerOpt.optimizeMissionAStar(_missionController, _planMasterController, 0.2)
                         originalPathForDisplay = TowerOpt.getOriginalPathWaypoints() || []
                         signalPathForDisplay = []
                         lengthPathForDisplay = []
                         smoothPathForDisplay = []
+                        exportedComparisonPlanFiles = []
+                        _resetComparisonExportState()
                     }
 
                     _scheduleTerrainRecoveryPasses(3)
@@ -4657,6 +4944,7 @@ Item {
                     signalPathForDisplay = []
                     lengthPathForDisplay = []
                     smoothPathForDisplay = []
+                    exportedComparisonPlanFiles = []
                     Qt.callLater(_refreshPathComparisonPanel)
                     dropPanel.hide()
                 }
